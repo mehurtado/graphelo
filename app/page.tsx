@@ -127,6 +127,8 @@ export default function Home() {
   const filteredGames = historyFilter
     ? allGamesReversed.filter(g => g.winner_id === historyFilter || g.loser_id === historyFilter)
     : allGamesReversed.slice(0, 30);
+  const winsGames   = historyFilter ? allGamesReversed.filter(g => g.winner_id === historyFilter) : [];
+  const lossesGames = historyFilter ? allGamesReversed.filter(g => g.loser_id  === historyFilter) : [];
 
   return (
     <div style={{ minHeight: "100vh", padding: "24px", maxWidth: 900, margin: "0 auto" }}>
@@ -390,16 +392,22 @@ export default function Home() {
       {tab === "history" && (
         <div className="fade-in">
           <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
-            <div className="section-label">GAME HISTORY ({filteredGames.length}{historyFilter ? ` / ${state.games.length}` : ""})</div>
+            <div className="section-label">
+              GAME HISTORY {historyFilter
+                ? `· ${winsGames.length}W ${lossesGames.length}L`
+                : `(${state.games.length})`}
+            </div>
             <select className="input" value={historyFilter} onChange={e => setHistoryFilter(e.target.value)} style={{ maxWidth: 180, padding: "3px 8px", fontSize: "0.75rem" }}>
               <option value="">all players</option>
               {players.map(p => <option key={p.id} value={p.id}>{p.display_name}</option>)}
             </select>
             {historyFilter && <button className="btn" style={{ padding: "2px 8px", fontSize: "0.7rem" }} onClick={() => setHistoryFilter("")}>clear</button>}
           </div>
+
           {filteredGames.length === 0 && <div style={{ color: "var(--text-dim)", fontSize: "0.85rem" }}>{historyFilter ? "No games for this player." : "No games logged yet."}</div>}
-          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            {filteredGames.map((g, i) => {
+
+          {(() => {
+            const gameCard = (g: typeof state.games[0]) => {
               const w = state.players[g.winner_id];
               const l = state.players[g.loser_id];
               const ws = g.winner_stats;
@@ -410,8 +418,7 @@ export default function Home() {
               const lHS = ls.kills > 0 ? `${Math.round(ls.headshots / ls.kills * 100)}%` : "—";
               return (
                 <div key={g.id} className="panel" style={{ padding: "10px 14px" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 0 }}>
-                    {/* Winner side */}
+                  <div style={{ display: "flex", alignItems: "center" }}>
                     <div style={{ flex: 1 }}>
                       <span className="player-name" style={{ color: "var(--win)" }}>{w?.display_name ?? g.winner_id}</span>
                       <div className="font-mono" style={{ fontSize: "0.65rem", color: "var(--text-dim)", marginTop: 2 }}>
@@ -424,7 +431,6 @@ export default function Home() {
                         {new Date(g.timestamp).toLocaleDateString()}
                       </div>
                     </div>
-                    {/* Loser side */}
                     <div style={{ flex: 1, textAlign: "right" }}>
                       <span className="player-name" style={{ color: "var(--lose)" }}>{l?.display_name ?? g.loser_id}</span>
                       <div className="font-mono" style={{ fontSize: "0.65rem", color: "var(--text-dim)", marginTop: 2 }}>
@@ -434,8 +440,27 @@ export default function Home() {
                   </div>
                 </div>
               );
-            })}
-          </div>
+            };
+
+            if (historyFilter) return (
+              <>
+                {winsGames.length > 0 && (
+                  <div style={{ marginBottom: 16 }}>
+                    <div className="section-label" style={{ marginBottom: 6, color: "var(--win)" }}>WINS ({winsGames.length})</div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>{winsGames.map(gameCard)}</div>
+                  </div>
+                )}
+                {lossesGames.length > 0 && (
+                  <div>
+                    <div className="section-label" style={{ marginBottom: 6, color: "var(--lose)" }}>LOSSES ({lossesGames.length})</div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>{lossesGames.map(gameCard)}</div>
+                  </div>
+                )}
+              </>
+            );
+
+            return <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>{filteredGames.map(gameCard)}</div>;
+          })()}
         </div>
       )}
 
