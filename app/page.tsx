@@ -18,7 +18,7 @@ function StatInput({ label, stats, onChange }: {
         {fields.map(f => (
           <div key={f}>
             <div style={{ fontSize: "0.58rem", color: "var(--text-dim)", fontFamily: "Share Tech Mono", letterSpacing: "0.1em", marginBottom: 2 }}>{f.toUpperCase()}</div>
-            <input className="input" type="number" min="0" max="99" value={stats[f]}
+            <input className="input" type="number" min="0" max="99" value={stats[f] || ""}
               onChange={e => onChange({ ...stats, [f]: parseInt(e.target.value) || 0 })}
               style={{ padding: "4px 8px", fontSize: "0.9rem" }} />
           </div>
