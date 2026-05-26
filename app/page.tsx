@@ -455,22 +455,32 @@ export default function Home() {
             {players.map(p => {
               const r = ranking.find(x => x.player_id === p.id);
               const sv = r?.stat_vec;
+              const wins = state.games.filter(g => g.winner_id === p.id).length;
+              const losses = state.games.filter(g => g.loser_id === p.id).length;
               return (
                 <div key={p.id} className="panel" style={{ padding: "10px 14px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                   <div>
                     <div className="player-name">{p.display_name}</div>
                     {sv && sv.games_played > 0 && (
                       <div className="font-mono" style={{ fontSize: "0.62rem", color: "var(--text-dim)", marginTop: 2 }}>
-                        KD {fmt(sv.kd)} · KDA {fmt(sv.kda)} · HS {pct(sv.hs_pct, 0)} · {sv.games_played} games
+                        KD {fmt(sv.kd)} · KDA {fmt(sv.kda)} · HS {pct(sv.hs_pct, 0)} · <span style={{ color: "var(--win)" }}>{wins}W</span> <span style={{ color: "var(--lose)" }}>{losses}L</span>
                       </div>
                     )}
                   </div>
-                  {r && (
-                    <div style={{ textAlign: "right" }}>
-                      <div className="rating-value" style={{ fontSize: "0.9rem" }}>{pct(r.tournament_win_pct, 1)}</div>
-                      <div style={{ fontSize: "0.6rem", color: "var(--text-dim)", fontFamily: "Share Tech Mono" }}>TOUR WIN%</div>
-                    </div>
-                  )}
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    {sv && sv.games_played > 0 && (
+                      <button className="btn" style={{ padding: "2px 8px", fontSize: "0.65rem" }}
+                        onClick={() => { setHistoryFilter(p.id); setTab("history"); }}>
+                        HISTORY
+                      </button>
+                    )}
+                    {r && (
+                      <div style={{ textAlign: "right" }}>
+                        <div className="rating-value" style={{ fontSize: "0.9rem" }}>{pct(r.tournament_win_pct, 1)}</div>
+                        <div style={{ fontSize: "0.6rem", color: "var(--text-dim)", fontFamily: "Share Tech Mono" }}>TOUR WIN%</div>
+                      </div>
+                    )}
+                  </div>
                 </div>
               );
             })}
