@@ -89,6 +89,28 @@ function EloChart({
   );
 }
 
+function computeRecentStats(playerId: string, games: Game[], window = 5) {
+  const pg = [...games]
+    .filter(g => g.winner_id === playerId || g.loser_id === playerId)
+    .sort((a, b) => a.timestamp - b.timestamp);
+  if (pg.length < window + 1) return null;
+  function agg(gs: typeof pg) {
+    let kills = 0, deaths = 0, hs = 0, wins = 0;
+    for (const g of gs) {
+      const won = g.winner_id === playerId;
+      const s = won ? g.winner_stats : g.loser_stats;
+      kills += s.kills; deaths += s.deaths; hs += s.headshots;
+      if (won) wins++;
+    }
+    return {
+      kd: deaths > 0 ? kills / deaths : kills,
+      hs_pct: kills > 0 ? hs / kills : 0,
+      win_rate: wins / gs.length,
+    };
+  }
+  return { recent: agg(pg.slice(-window)), overall: agg(pg), games: pg.length };
+}
+
 function computeStreak(playerId: string, games: Game[]) {
   const pg = [...games]
     .filter(g => g.winner_id === playerId || g.loser_id === playerId)
@@ -779,6 +801,7 @@ export default function Home() {
             };
 
             if (historyFilter) {
+              const trend = computeRecentStats(historyFilter, state.games);
               const opponentIds = Array.from(new Set(
                 state.games
                   .filter(g => g.winner_id === historyFilter || g.loser_id === historyFilter)
@@ -792,6 +815,33 @@ export default function Home() {
               );
               return (
                 <>
+                  {trend && (() => {
+                    const arrow = (r: number, o: number) => r > o + 0.05 ? { sym: "↑", col: "var(--win)" } : r < o - 0.05 ? { sym: "↓", col: "var(--lose)" } : { sym: "→", col: "var(--text-dim)" };
+                    const kdA  = arrow(trend.recent.kd,       trend.overall.kd);
+                    const hsA  = arrow(trend.recent.hs_pct,   trend.overall.hs_pct);
+                    const wrA  = arrow(trend.recent.win_rate, trend.overall.win_rate);
+                    return (
+                      <div className="panel" style={{ padding: "10px 14px", marginBottom: 12 }}>
+                        <div className="section-label" style={{ marginBottom: 8 }}>RECENT FORM — last 5 vs all-time</div>
+                        <div style={{ display: "flex", gap: 20 }}>
+                          {[
+                            { label: "KD",   r: trend.recent.kd,       o: trend.overall.kd,       a: kdA, fmt: (v: number) => v.toFixed(2) },
+                            { label: "HS%",  r: trend.recent.hs_pct,   o: trend.overall.hs_pct,   a: hsA, fmt: (v: number) => `${(v*100).toFixed(0)}%` },
+                            { label: "WIN%", r: trend.recent.win_rate,  o: trend.overall.win_rate, a: wrA, fmt: (v: number) => `${(v*100).toFixed(0)}%` },
+                          ].map(({ label, r, o, a, fmt }) => (
+                            <div key={label}>
+                              <div className="section-label" style={{ marginBottom: 3 }}>{label}</div>
+                              <div style={{ display: "flex", alignItems: "baseline", gap: 4 }}>
+                                <span className="font-mono" style={{ fontSize: "0.9rem", color: "var(--text-bright)" }}>{fmt(r)}</span>
+                                <span className="font-mono" style={{ fontSize: "0.7rem", color: a.col }}>{a.sym}</span>
+                                <span className="font-mono" style={{ fontSize: "0.65rem", color: "var(--text-dim)" }}>{fmt(o)}</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })()}
                   {(nemeses.length > 0 || dominates.length > 0) && (
                     <div className="panel" style={{ padding: "10px 14px", marginBottom: 16, display: "flex", gap: 28, flexWrap: "wrap" }}>
                       {nemeses.length > 0 && (
