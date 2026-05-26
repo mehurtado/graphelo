@@ -90,6 +90,20 @@ export default function Home() {
     } finally { setAddingPlayer(false); }
   }
 
+  async function handleDeletePlayer(id: string) {
+    const name = state.players[id]?.display_name ?? id;
+    const gameCount = state.games.filter(g => g.winner_id === id || g.loser_id === id).length;
+    if (!confirm(`Delete ${name}? This removes them and all ${gameCount} of their game(s). Cannot be undone.`)) return;
+    const res = await fetch(`/api/players/${id}`, { method: "DELETE" });
+    if (!res.ok) { const d = await res.json(); setError(d.error); return; }
+    const s = await res.json();
+    setState(s);
+    computeRanking(s);
+    if (historyFilter === id) setHistoryFilter("");
+    if (predA === id) setPredA("");
+    if (predB === id) setPredB("");
+  }
+
   async function handleDeleteGame(id: string) {
     if (!confirm("Delete this game? This cannot be undone.")) return;
     const res = await fetch(`/api/matches/${id}`, { method: "DELETE" });
@@ -131,6 +145,21 @@ export default function Home() {
   function fmt(n: number, dec = 2) { return n.toFixed(dec); }
   function confLabel(c: number) { return c < 0.25 ? "LOW" : c < 0.6 ? "MED" : "HIGH"; }
   function confColor(c: number) { return c < 0.25 ? "var(--lose)" : c < 0.6 ? "var(--neutral)" : "var(--win)"; }
+
+  const mostInteresting = (() => {
+    if (ranking.length < 2) return null;
+    let best: { a: RankEntry; b: RankEntry; p: number } | null = null;
+    let minDiff = 1;
+    for (let i = 0; i < ranking.length; i++) {
+      for (let j = i + 1; j < ranking.length; j++) {
+        const a = ranking[i], b = ranking[j];
+        const p = a.matchup_table[b.player_id] ?? 0.5;
+        const diff = Math.abs(p - 0.5);
+        if (diff < minDiff) { minDiff = diff; best = { a, b, p }; }
+      }
+    }
+    return best;
+  })();
 
   const allGamesReversed = [...state.games].reverse();
   const filteredGames = historyFilter
@@ -186,6 +215,25 @@ export default function Home() {
               ↺ RECALC
             </button>
           </div>
+
+          {mostInteresting && state.games.length > 0 && (
+            <div className="panel" style={{ padding: "11px 16px", marginBottom: 14, display: "flex", alignItems: "center", gap: 14, borderColor: "var(--accent)" }}>
+              <div style={{ flex: 1 }}>
+                <div className="section-label" style={{ marginBottom: 5, color: "var(--accent)" }}>CLOSEST MATCHUP</div>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <span className="player-name">{mostInteresting.a.display_name}</span>
+                  <span className="font-mono" style={{ fontSize: "0.72rem", color: "var(--text-dim)" }}>
+                    {pct(mostInteresting.p, 1)} · {pct(1 - mostInteresting.p, 1)}
+                  </span>
+                  <span className="player-name">{mostInteresting.b.display_name}</span>
+                </div>
+              </div>
+              <button className="btn" style={{ padding: "3px 10px", fontSize: "0.7rem", flexShrink: 0 }}
+                onClick={() => { setPredA(mostInteresting!.a.player_id); setPredB(mostInteresting!.b.player_id); setPrediction(predictPairwise(state, mostInteresting!.a.player_id, mostInteresting!.b.player_id)); setTab("matchup"); }}>
+                ANALYZE →
+              </button>
+            </div>
+          )}
 
           {ranking.length === 0 ? (
             <div style={{ color: "var(--text-dim)", fontSize: "0.85rem" }}>
@@ -351,6 +399,36 @@ export default function Home() {
               PREDICT
             </button>
           </div>
+
+          {predA && players.length > 1 && (
+            <div style={{ marginTop: 16 }}>
+              <div className="section-label" style={{ marginBottom: 8 }}>
+                SUGGESTED OPPONENTS FOR {state.players[predA]?.display_name?.toUpperCase()}
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                {players
+                  .filter(p => p.id !== predA)
+                  .map(p => {
+                    const pred = predictPairwise(state, predA, p.id);
+                    return { player: p, pred, diff: Math.abs(pred.p_a_wins - 0.5) };
+                  })
+                  .sort((a, b) => a.diff - b.diff)
+                  .map(({ player, pred }) => {
+                    const color = pred.p_a_wins > 0.6 ? "var(--win)" : pred.p_a_wins < 0.4 ? "var(--lose)" : "var(--neutral)";
+                    return (
+                      <div key={player.id} className="panel" style={{ padding: "8px 12px", display: "flex", alignItems: "center", cursor: "pointer" }}
+                        onClick={() => { setPredB(player.id); setPrediction(pred); }}>
+                        <span className="player-name" style={{ flex: 1 }}>{player.display_name}</span>
+                        <span className="font-mono" style={{ fontSize: "0.75rem", color, marginRight: 8 }}>{pct(pred.p_a_wins, 1)}</span>
+                        <span className="font-mono" style={{ fontSize: "0.6rem", color: "var(--text-dim)" }}>
+                          {pred.p_a_wins > 0.6 ? "FAVORED" : pred.p_a_wins < 0.4 ? "UNDERDOG" : "EVEN"}
+                        </span>
+                      </div>
+                    );
+                  })}
+              </div>
+            </div>
+          )}
 
           {prediction && (() => {
             const aName = state.players[predA]?.display_name ?? "A";
@@ -519,6 +597,9 @@ export default function Home() {
                         <div style={{ fontSize: "0.6rem", color: "var(--text-dim)", fontFamily: "Share Tech Mono" }}>TOUR WIN%</div>
                       </div>
                     )}
+                    <button onClick={() => handleDeletePlayer(p.id)}
+                      style={{ background: "none", border: "none", color: "var(--text-dim)", cursor: "pointer", fontSize: "0.85rem", padding: "2px 4px" }}
+                      title="Delete player">✕</button>
                   </div>
                 </div>
               );
