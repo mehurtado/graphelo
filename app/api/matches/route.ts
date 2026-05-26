@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 export const dynamic = "force-dynamic";
-import { loadState, saveState } from "@/lib/storage";
+import { loadState, saveGame } from "@/lib/storage";
 import { v4 as uuidv4 } from "uuid";
 
 export async function POST(req: NextRequest) {
@@ -13,15 +13,16 @@ export async function POST(req: NextRequest) {
     if (!state.players[winner_id]) return NextResponse.json({ error: `Unknown player: ${winner_id}` }, { status: 400 });
     if (!state.players[loser_id]) return NextResponse.json({ error: `Unknown player: ${loser_id}` }, { status: 400 });
 
-    state.games.push({
+    const game = {
       id: uuidv4(),
       timestamp: Date.now(),
       winner_id,
       loser_id,
       winner_stats: winner_stats ?? { kills: 0, deaths: 0, assists: 0, headshots: 0 },
       loser_stats:  loser_stats  ?? { kills: 0, deaths: 0, assists: 0, headshots: 0 },
-    });
-    await saveState(state);
+    };
+    await saveGame(game);
+    state.games.push(game);
     return NextResponse.json(state, { status: 201 });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

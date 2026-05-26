@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 export const dynamic = "force-dynamic";
-import { loadState, saveState } from "@/lib/storage";
+import { loadState, savePlayers } from "@/lib/storage";
 import { v4 as uuidv4 } from "uuid";
 
 export async function POST(req: NextRequest) {
@@ -16,7 +16,7 @@ export async function POST(req: NextRequest) {
 
     const id = uuidv4();
     state.players[id] = { id, display_name: display_name.trim(), created_at: Date.now() };
-    await saveState(state);
+    await savePlayers(state.players);
     return NextResponse.json(state, { status: 201 });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

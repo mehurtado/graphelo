@@ -1,13 +1,12 @@
-import { put, list } from "@vercel/blob";
-import type { GraphState } from "./graph-engine";
+import { put, list, del } from "@vercel/blob";
+import type { GraphState, Player, Game } from "./graph-engine";
 
-const BLOB_PATHNAME = "graphelo/state-v2.json";
+const PLAYERS_BLOB  = "graphelo/players.json";
+const GAMES_PREFIX  = "graphelo/games/";
+const LEGACY_BLOB   = "graphelo/state-v2.json";
 
-export async function loadState(): Promise<GraphState> {
-  const { blobs } = await list({ prefix: BLOB_PATHNAME, limit: 1 });
-  if (blobs.length === 0) return { players: {}, games: [] };
-
-  const res = await fetch(blobs[0].url, {
+async function fetchJson<T>(url: string): Promise<T> {
+  const res = await fetch(url, {
     cache: "no-store",
     headers: { Authorization: `Bearer ${process.env.BLOB_READ_WRITE_TOKEN}` },
   });
@@ -15,8 +14,41 @@ export async function loadState(): Promise<GraphState> {
   return res.json();
 }
 
-export async function saveState(state: GraphState): Promise<void> {
-  await put(BLOB_PATHNAME, JSON.stringify(state), {
+export async function loadState(): Promise<GraphState> {
+  // One-time migration from legacy single-blob format
+  const { blobs: legacy } = await list({ prefix: LEGACY_BLOB, limit: 1 });
+  if (legacy.length > 0) {
+    const old = await fetchJson<GraphState>(legacy[0].url);
+    await savePlayers(old.players);
+    await Promise.all(old.games.map(g => saveGame(g)));
+    try { await del(legacy[0].url); } catch { /* non-critical */ }
+  }
+
+  const { blobs: pBlobs } = await list({ prefix: PLAYERS_BLOB, limit: 1 });
+  const players: Record<string, Player> = pBlobs.length > 0
+    ? await fetchJson(pBlobs[0].url)
+    : {};
+
+  const { blobs: gBlobs } = await list({ prefix: GAMES_PREFIX, limit: 1000 });
+  const games: Game[] = gBlobs.length > 0
+    ? await Promise.all(gBlobs.map(b => fetchJson<Game>(b.url)))
+    : [];
+  games.sort((a, b) => a.timestamp - b.timestamp);
+
+  return { players, games };
+}
+
+export async function savePlayers(players: Record<string, Player>): Promise<void> {
+  await put(PLAYERS_BLOB, JSON.stringify(players), {
+    access: "private",
+    addRandomSuffix: false,
+    allowOverwrite: true,
+    contentType: "application/json",
+  });
+}
+
+export async function saveGame(game: Game): Promise<void> {
+  await put(`${GAMES_PREFIX}${game.id}.json`, JSON.stringify(game), {
     access: "private",
     addRandomSuffix: false,
     allowOverwrite: true,
