@@ -356,10 +356,10 @@ export default function Home() {
             <div className="panel" style={{ padding: 16, marginBottom: 14 }}>
               <div style={{ display: "flex", gap: 20 }}>
                 <StatInput label={logWinner ? `${state.players[logWinner]?.display_name ?? "WINNER"} STATS` : "WINNER STATS"} stats={winStats}
-                  onChange={s => { setWinStats(s); setLoseStats(prev => ({ ...prev, deaths: s.kills })); }} />
+                  onChange={s => { setWinStats(s); setLoseStats(prev => ({ ...prev, deaths: s.kills, kills: s.deaths })); }} />
                 <div style={{ width: 1, background: "var(--border)", flexShrink: 0 }} />
                 <StatInput label={logLoser ? `${state.players[logLoser]?.display_name ?? "LOSER"} STATS` : "LOSER STATS"} stats={loseStats}
-                  onChange={s => { setLoseStats(s); setWinStats(prev => ({ ...prev, deaths: s.kills })); }} />
+                  onChange={s => { setLoseStats(s); setWinStats(prev => ({ ...prev, deaths: s.kills, kills: s.deaths })); }} />
               </div>
             </div>
 
