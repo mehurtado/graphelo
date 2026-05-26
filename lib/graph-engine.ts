@@ -59,6 +59,7 @@ const TAU_DAYS = 90;           // recency decay half-life
 const SIM_ROUNDS = 1000;       // round robin rounds per pairing
 const L_MAX = 5;               // max path length for graph traversal
 const STAT_PRIOR_WEIGHT = 0.3; // stat-based prior weight when graph evidence is thin
+const DIRECT_MULTIPLIER = 2;   // direct head-to-head games outweigh indirect chains
 
 // ─── Graph Primitives ─────────────────────────────────────────────────────────
 
@@ -181,11 +182,11 @@ export function computeStatVector(playerId: string, games: Game[]): StatVector {
 
 function statPrior(a: StatVector, b: StatVector): number {
   const logit =
-    (a.kd       - b.kd)       * 0.35 +
-    (a.kda      - b.kda)      * 0.25 +
-    (a.hs_pct   - b.hs_pct)   * 0.20 +
-    (a.win_rate - b.win_rate)  * 0.10 +
-    (a.kpr      - b.kpr)      * 0.10;
+    (a.kd       - b.kd)       * 0.45 +  // kills/deaths ratio — primary skill signal
+    (a.hs_pct   - b.hs_pct)   * 0.22 +  // aim consistency
+    (a.win_rate - b.win_rate)  * 0.18 +  // direct outcome signal
+    (a.kda      - b.kda)      * 0.10 +  // assists rarely occur in 1v1
+    (a.kpr      - b.kpr)      * 0.05;   // kills per round, secondary
   return sigmoid(logit * 2.5);
 }
 
@@ -209,8 +210,8 @@ function predictInternal(
   let weightedP = prior * STAT_PRIOR_WEIGHT;
 
   if (direct) {
-    totalWeight += direct.mass;
-    weightedP += direct.p * direct.mass;
+    totalWeight += direct.mass * DIRECT_MULTIPLIER;
+    weightedP += direct.p * direct.mass * DIRECT_MULTIPLIER;
   }
   for (const path of forwardPaths) {
     const w = path.evidence * path.path_weight;
@@ -225,7 +226,7 @@ function predictInternal(
 
   const p_a_wins = Math.max(0.02, Math.min(0.98, weightedP / totalWeight));
   const graphMass = totalWeight - STAT_PRIOR_WEIGHT;
-  const totalPaths = forwardPaths.length + reversePaths.length;
+  const totalPaths = (direct ? 1 : 0) + forwardPaths.length + reversePaths.length;
   const confidence = 1 - Math.exp(-0.15 * graphMass * Math.sqrt(1 + totalPaths));
 
   return {
