@@ -89,6 +89,89 @@ function EloChart({
   );
 }
 
+function GraphViz({ state, elo }: { state: { players: Record<string, { display_name: string }>; games: typeof [] }; elo: Record<string, number> }) {
+  const players = Object.values(state.players as Record<string, { display_name: string; id?: string }>);
+  const ids = Object.keys(state.players);
+  const n = ids.length;
+  if (n < 2) return null;
+
+  const W = 500, H = 500, cx = 250, cy = 250, R = 175, nr = 26;
+  const angle = (i: number) => (2 * Math.PI * i / n) - Math.PI / 2;
+  const pos: Record<string, { x: number; y: number }> = {};
+  ids.forEach((id, i) => { pos[id] = { x: cx + R * Math.cos(angle(i)), y: cy + R * Math.sin(angle(i)) }; });
+
+  const edgeMap: Record<string, Record<string, number>> = {};
+  for (const id of ids) edgeMap[id] = {};
+  for (const g of (state.games as Array<{ winner_id: string; loser_id: string }>) ) {
+    edgeMap[g.winner_id][g.loser_id] = (edgeMap[g.winner_id][g.loser_id] ?? 0) + 1;
+  }
+
+  const edges: Array<{ from: string; to: string; total: number; dominance: number }> = [];
+  const seen = new Set<string>();
+  for (const a of ids) {
+    for (const b of ids) {
+      if (a === b) continue;
+      const key = [a, b].sort().join("_");
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const aW = edgeMap[a][b] ?? 0, bW = edgeMap[b][a] ?? 0;
+      const total = aW + bW;
+      if (total === 0) continue;
+      const dom = aW >= bW ? { from: a, to: b, dominance: aW / total } : { from: b, to: a, dominance: bW / total };
+      edges.push({ ...dom, total });
+    }
+  }
+
+  return (
+    <div>
+      <div className="section-label" style={{ marginBottom: 8 }}>GRAPH STRUCTURE</div>
+      <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ display: "block", maxWidth: 500, margin: "0 auto" }}>
+        <defs>
+          <marker id="arr-w" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+            <path d="M0,0 L6,3 L0,6 z" fill="var(--accent)" />
+          </marker>
+          <marker id="arr-e" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+            <path d="M0,0 L6,3 L0,6 z" fill="var(--neutral)" />
+          </marker>
+        </defs>
+        {edges.map(({ from, to, total, dominance }) => {
+          const pf = pos[from], pt = pos[to];
+          const dx = pt.x - pf.x, dy = pt.y - pf.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          const ux = dx / dist, uy = dy / dist;
+          const x1 = pf.x + ux * nr, y1 = pf.y + uy * nr;
+          const x2 = pt.x - ux * (nr + 7), y2 = pt.y - uy * (nr + 7);
+          const strong = dominance > 0.65;
+          const sw = Math.min(4, Math.max(1, total * 0.6));
+          return (
+            <line key={`${from}_${to}`} x1={x1} y1={y1} x2={x2} y2={y2}
+              stroke={strong ? "var(--accent)" : "var(--neutral)"}
+              strokeWidth={sw} opacity={strong ? 0.7 : 0.4}
+              markerEnd={strong ? "url(#arr-w)" : "url(#arr-e)"} />
+          );
+        })}
+        {ids.map((id, i) => {
+          const { x, y } = pos[id];
+          const name = (state.players[id] as { display_name: string })?.display_name ?? id;
+          const eloVal = elo[id] ?? 1000;
+          const color = PLAYER_COLORS[i % PLAYER_COLORS.length];
+          return (
+            <g key={id}>
+              <circle cx={x} cy={y} r={nr} fill="var(--surface)" stroke={color} strokeWidth={1.5} />
+              <text x={x} y={y - 4} textAnchor="middle" fill="var(--text-bright)" fontSize={9} fontFamily="Share Tech Mono" fontWeight={600}>
+                {name.slice(0, 7)}
+              </text>
+              <text x={x} y={y + 8} textAnchor="middle" fill={color} fontSize={8} fontFamily="Share Tech Mono">
+                {eloVal}
+              </text>
+            </g>
+          );
+        })}
+      </svg>
+    </div>
+  );
+}
+
 function computeRecentStats(playerId: string, games: Game[], window = 5) {
   const pg = [...games]
     .filter(g => g.winner_id === playerId || g.loser_id === playerId)
@@ -471,6 +554,12 @@ export default function Home() {
               {Object.keys(eloHistory).some(id => eloHistory[id].length > 0) && (
                 <div style={{ marginTop: 28, marginBottom: 28 }}>
                   <EloChart history={eloHistory} players={state.players} />
+                </div>
+              )}
+
+              {players.length >= 2 && state.games.length > 0 && (
+                <div style={{ marginTop: 28, marginBottom: 28 }}>
+                  <GraphViz state={state} elo={elo} />
                 </div>
               )}
 
