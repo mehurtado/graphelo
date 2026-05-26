@@ -55,3 +55,8 @@ export async function saveGame(game: Game): Promise<void> {
     contentType: "application/json",
   });
 }
+
+export async function deleteGame(id: string): Promise<void> {
+  const { blobs } = await list({ prefix: `${GAMES_PREFIX}${id}.json`, limit: 1 });
+  if (blobs.length > 0) await del(blobs[0].url);
+}

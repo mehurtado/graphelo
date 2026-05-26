@@ -90,6 +90,15 @@ export default function Home() {
     } finally { setAddingPlayer(false); }
   }
 
+  async function handleDeleteGame(id: string) {
+    if (!confirm("Delete this game? This cannot be undone.")) return;
+    const res = await fetch(`/api/matches/${id}`, { method: "DELETE" });
+    if (!res.ok) { const d = await res.json(); setError(d.error); return; }
+    const s = await res.json();
+    setState(s);
+    computeRanking(s);
+  }
+
   async function logGame(e: React.FormEvent) {
     e.preventDefault();
     if (!logWinner || !logLoser) return;
@@ -439,6 +448,9 @@ export default function Home() {
                         HS {lHS} · KD {lKD} · {ls.assists}A {ls.deaths}D {ls.kills}K
                       </div>
                     </div>
+                    <button onClick={() => handleDeleteGame(g.id)}
+                      style={{ marginLeft: 12, background: "none", border: "none", color: "var(--text-dim)", cursor: "pointer", fontSize: "0.85rem", lineHeight: 1, padding: "2px 4px" }}
+                      title="Delete game">✕</button>
                   </div>
                 </div>
               );
