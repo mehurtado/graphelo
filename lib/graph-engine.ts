@@ -348,6 +348,23 @@ export function computeElo(state: GraphState): Record<string, number> {
   return elo;
 }
 
+export function computeEloHistory(state: GraphState): Record<string, Array<{ timestamp: number; elo: number }>> {
+  const K = 32;
+  const current: Record<string, number> = {};
+  const history: Record<string, Array<{ timestamp: number; elo: number }>> = {};
+  for (const id of Object.keys(state.players)) { current[id] = 1000; history[id] = []; }
+  for (const g of [...state.games].sort((a, b) => a.timestamp - b.timestamp)) {
+    const ra = current[g.winner_id] ?? 1000;
+    const rb = current[g.loser_id] ?? 1000;
+    const ea = 1 / (1 + Math.pow(10, (rb - ra) / 400));
+    current[g.winner_id] = Math.round(ra + K * (1 - ea));
+    current[g.loser_id]  = Math.round(rb + K * (0 - (1 - ea)));
+    if (history[g.winner_id]) history[g.winner_id].push({ timestamp: g.timestamp, elo: current[g.winner_id] });
+    if (history[g.loser_id])  history[g.loser_id].push({ timestamp: g.timestamp, elo: current[g.loser_id] });
+  }
+  return history;
+}
+
 export function computePredictionAccuracy(state: GraphState): { correct: number; total: number } {
   const sorted = [...state.games].sort((a, b) => a.timestamp - b.timestamp);
   let correct = 0, total = 0;

@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import type { GraphState, Game, RankEntry, PairwisePrediction, PerGameStats } from "@/lib/graph-engine";
-import { simulateRoundRobin, predictPairwise, computeGlobalPathDist, computeElo, computePredictionAccuracy } from "@/lib/graph-engine";
+import { simulateRoundRobin, predictPairwise, computeGlobalPathDist, computeElo, computePredictionAccuracy, computeEloHistory } from "@/lib/graph-engine";
 
 type Tab = "ranking" | "log" | "matchup" | "history" | "players";
 
@@ -29,6 +29,62 @@ function PathDistChart({ dist, title }: { dist: Record<number, number>; title: s
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+const PLAYER_COLORS = ["#f59e0b","#34d399","#f87171","#a78bfa","#38bdf8","#fb923c","#e879f9","#4ade80","#f472b6","#60a5fa"];
+
+function EloChart({
+  history, players,
+}: {
+  history: Record<string, Array<{ timestamp: number; elo: number }>>;
+  players: Record<string, { display_name: string }>;
+}) {
+  const ids = Object.keys(history).filter(id => history[id].length > 0);
+  if (ids.length === 0) return null;
+  const allPts = ids.flatMap(id => history[id]);
+  const minT = Math.min(...allPts.map(p => p.timestamp));
+  const maxT = Math.max(...allPts.map(p => p.timestamp));
+  const rawMin = Math.min(1000, ...allPts.map(p => p.elo));
+  const rawMax = Math.max(1000, ...allPts.map(p => p.elo));
+  const ePad = Math.max(15, Math.ceil((rawMax - rawMin) * 0.15));
+  const minElo = rawMin - ePad, maxElo = rawMax + ePad;
+  const W = 760, H = 180, PL = 44, PR = 92, PT = 10, PB = 18;
+  const cw = W - PL - PR, ch = H - PT - PB;
+  const xS = (t: number) => PL + (maxT === minT ? cw / 2 : ((t - minT) / (maxT - minT)) * cw);
+  const yS = (e: number) => PT + ch - ((e - minElo) / (maxElo - minElo)) * ch;
+  const ticks = Array.from({ length: 5 }, (_, i) => Math.round(minElo + (i / 4) * (maxElo - minElo)));
+  return (
+    <div>
+      <div className="section-label" style={{ marginBottom: 8 }}>ELO HISTORY</div>
+      <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ display: "block", overflow: "visible" }}>
+        {ticks.map(e => (
+          <g key={e}>
+            <line x1={PL} y1={yS(e)} x2={W - PR} y2={yS(e)}
+              stroke={e === 1000 ? "var(--border)" : "var(--surface2)"}
+              strokeWidth={e === 1000 ? 0.8 : 0.4}
+              strokeDasharray={e === 1000 ? "4 3" : undefined} />
+            <text x={PL - 4} y={yS(e) + 3.5} fill="var(--text-dim)" fontSize={8} textAnchor="end" fontFamily="Share Tech Mono">{e}</text>
+          </g>
+        ))}
+        {ids.map((id, ci) => {
+          const pts = history[id];
+          const color = PLAYER_COLORS[ci % PLAYER_COLORS.length];
+          const draw = [{ timestamp: minT, elo: 1000 }, ...pts];
+          const d = draw.map((p, i) => `${i === 0 ? "M" : "L"}${xS(p.timestamp).toFixed(1)},${yS(p.elo).toFixed(1)}`).join(" ");
+          const last = draw[draw.length - 1];
+          return (
+            <g key={id}>
+              <path d={d} fill="none" stroke={color} strokeWidth={1.5} strokeLinejoin="round" opacity={0.85} />
+              <circle cx={xS(last.timestamp)} cy={yS(last.elo)} r={3} fill={color} />
+              <text x={xS(last.timestamp) + 6} y={yS(last.elo) + 4} fill={color} fontSize={9} fontFamily="Share Tech Mono">
+                {(players[id]?.display_name ?? id).slice(0, 10)}
+              </text>
+            </g>
+          );
+        })}
+      </svg>
     </div>
   );
 }
@@ -75,6 +131,8 @@ export default function Home() {
   const [globalPathDist, setGlobalPathDist] = useState<Record<number, number>>({});
   const [elo, setElo] = useState<Record<string, number>>({});
   const [predAccuracy, setPredAccuracy] = useState<{ correct: number; total: number } | null>(null);
+  const [eloHistory, setEloHistory] = useState<Record<string, Array<{ timestamp: number; elo: number }>>>({});
+  const [rankSort, setRankSort] = useState<"tour" | "elo">("tour");
 
   // Log tab
   const [logWinner, setLogWinner] = useState("");
@@ -112,6 +170,7 @@ export default function Home() {
       setRanking(simulateRoundRobin(s));
       setGlobalPathDist(computeGlobalPathDist(s));
       setElo(computeElo(s));
+      setEloHistory(computeEloHistory(s));
       if (s.games.length > 1) setPredAccuracy(computePredictionAccuracy(s));
     } catch { setError("Ranking failed"); }
   }, []);
@@ -121,6 +180,13 @@ export default function Home() {
   }, [refresh, computeRanking]);
 
   const players = Object.values(state.players);
+
+  const sortedRanking = useMemo(() =>
+    rankSort === "elo"
+      ? [...ranking].sort((a, b) => (elo[b.player_id] ?? 1000) - (elo[a.player_id] ?? 1000))
+      : ranking,
+    [ranking, rankSort, elo],
+  );
 
   const upsetMap = useMemo(() => {
     const map: Record<string, boolean> = {};
@@ -272,9 +338,14 @@ export default function Home() {
                 MODEL {Math.round(predAccuracy.correct / predAccuracy.total * 100)}% ACC ({predAccuracy.correct}/{predAccuracy.total})
               </span>
             )}
-            <button className="btn" style={{ marginLeft: "auto", padding: "3px 10px", fontSize: "0.7rem" }} onClick={() => computeRanking(state)}>
-              ↺ RECALC
-            </button>
+            <div style={{ marginLeft: "auto", display: "flex", gap: 5, alignItems: "center" }}>
+              {(["tour", "elo"] as const).map(s => (
+                <button key={s} className="btn" onClick={() => setRankSort(s)} style={{ padding: "2px 8px", fontSize: "0.62rem", background: rankSort === s ? "var(--accent)" : undefined, color: rankSort === s ? "#000" : undefined }}>
+                  {s === "tour" ? "TOUR%" : "ELO"}
+                </button>
+              ))}
+              <button className="btn" style={{ padding: "3px 8px", fontSize: "0.7rem" }} onClick={() => computeRanking(state)}>↺</button>
+            </div>
           </div>
 
           {mostInteresting && state.games.length > 0 && (
@@ -309,7 +380,7 @@ export default function Home() {
                 ))}
               </div>
 
-              {ranking.map((r, i) => {
+              {sortedRanking.map((r, i) => {
                 const sv = r.stat_vec;
                 const barW = Math.max(4, Math.round(r.tournament_win_pct * 100));
                 const isTop = i === 0;
@@ -360,6 +431,12 @@ export default function Home() {
                 </div>
               )}
 
+              {Object.keys(eloHistory).some(id => eloHistory[id].length > 0) && (
+                <div style={{ marginTop: 28, marginBottom: 28 }}>
+                  <EloChart history={eloHistory} players={state.players} />
+                </div>
+              )}
+
               {/* Matchup matrix */}
               {ranking.length >= 2 && (
                 <div style={{ marginTop: 28 }}>
@@ -369,7 +446,7 @@ export default function Home() {
                       <thead>
                         <tr>
                           <td style={{ padding: "4px 10px", color: "var(--text-dim)" }}></td>
-                          {ranking.map(r => (
+                          {sortedRanking.map(r => (
                             <td key={r.player_id} style={{ padding: "4px 8px", color: "var(--text-dim)", textAlign: "center", maxWidth: 70, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                               {r.display_name.slice(0, 6)}
                             </td>
@@ -377,10 +454,10 @@ export default function Home() {
                         </tr>
                       </thead>
                       <tbody>
-                        {ranking.map(rowP => (
+                        {sortedRanking.map(rowP => (
                           <tr key={rowP.player_id}>
                             <td style={{ padding: "4px 10px", color: "var(--text-dim)", whiteSpace: "nowrap" }}>{rowP.display_name.slice(0, 8)}</td>
-                            {ranking.map(colP => {
+                            {sortedRanking.map(colP => {
                               if (rowP.player_id === colP.player_id) {
                                 return <td key={colP.player_id} style={{ padding: "4px 8px", textAlign: "center", background: "var(--surface2)", color: "var(--text-dim)" }}>—</td>;
                               }
