@@ -201,7 +201,8 @@ function predictInternal(
 ): PairwisePrediction {
   const direct = directP(adj, aId, bId);
   const directGames = (adj[aId]?.[bId]?.length ?? 0) + (adj[bId]?.[aId]?.length ?? 0);
-  const paths = findPaths(adj, aId, bId);
+  const forwardPaths = findPaths(adj, aId, bId); // a→...→b: evidence a wins
+  const reversePaths = findPaths(adj, bId, aId); // b→...→a: evidence b wins
   const prior = statPrior(statA, statB);
 
   let totalWeight = STAT_PRIOR_WEIGHT;
@@ -211,21 +212,27 @@ function predictInternal(
     totalWeight += direct.mass;
     weightedP += direct.p * direct.mass;
   }
-  for (const path of paths) {
+  for (const path of forwardPaths) {
     const w = path.evidence * path.path_weight;
     totalWeight += w;
     weightedP += path.implied_p * w;
   }
+  for (const path of reversePaths) {
+    const w = path.evidence * path.path_weight;
+    totalWeight += w;
+    weightedP += (1 - path.implied_p) * w; // b winning this chain = a loses
+  }
 
   const p_a_wins = Math.max(0.02, Math.min(0.98, weightedP / totalWeight));
   const graphMass = totalWeight - STAT_PRIOR_WEIGHT;
-  const confidence = 1 - Math.exp(-0.15 * graphMass * Math.sqrt(1 + paths.length));
+  const totalPaths = forwardPaths.length + reversePaths.length;
+  const confidence = 1 - Math.exp(-0.15 * graphMass * Math.sqrt(1 + totalPaths));
 
   return {
     p_a_wins,
     confidence: Math.max(0, Math.min(1, confidence)),
     direct_games: directGames,
-    paths_used: paths.length,
+    paths_used: totalPaths,
     evidence_mass: totalWeight,
   };
 }
