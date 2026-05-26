@@ -57,6 +57,7 @@ export default function Home() {
     try {
       const res = await fetch("/api/state");
       const s = await res.json();
+      if (!res.ok) { setError(s.error ?? "Failed to load state"); return null; }
       setState(s);
       return s;
     } catch { setError("Connection failed"); return null; }

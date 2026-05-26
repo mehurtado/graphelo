@@ -1,7 +1,10 @@
 import { Redis } from "@upstash/redis";
 import type { GraphState, Player, Game } from "./graph-engine";
 
-const redis = Redis.fromEnv();
+const redis = new Redis({
+  url:   (process.env.UPSTASH_REDIS_REST_URL   ?? process.env.KV_REST_API_URL)!,
+  token: (process.env.UPSTASH_REDIS_REST_TOKEN ?? process.env.KV_REST_API_TOKEN)!,
+});
 
 // Players: Redis Hash  (field = player id, value = Player JSON)
 // Games:   Redis List  (each element = Game JSON, oldest first)
