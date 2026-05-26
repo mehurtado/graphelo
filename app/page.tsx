@@ -188,6 +188,21 @@ export default function Home() {
     [ranking, rankSort, elo],
   );
 
+  const rivalries = useMemo(() => {
+    const pairs: Record<string, { a: string; b: string; aWins: number; bWins: number; total: number }> = {};
+    for (const g of state.games) {
+      const [a, b] = [g.winner_id, g.loser_id].sort();
+      const key = `${a}_${b}`;
+      if (!pairs[key]) pairs[key] = { a, b, aWins: 0, bWins: 0, total: 0 };
+      pairs[key].total++;
+      if (g.winner_id === a) pairs[key].aWins++; else pairs[key].bWins++;
+    }
+    return Object.values(pairs)
+      .filter(rv => rv.total >= 2 && state.players[rv.a] && state.players[rv.b])
+      .sort((x, y) => y.total - x.total || Math.abs(x.aWins - x.bWins) - Math.abs(y.aWins - y.bWins))
+      .slice(0, 5);
+  }, [state]);
+
   const upsetMap = useMemo(() => {
     const map: Record<string, boolean> = {};
     for (const g of state.games) {
@@ -434,6 +449,39 @@ export default function Home() {
               {Object.keys(eloHistory).some(id => eloHistory[id].length > 0) && (
                 <div style={{ marginTop: 28, marginBottom: 28 }}>
                   <EloChart history={eloHistory} players={state.players} />
+                </div>
+              )}
+
+              {/* Rivalry board */}
+              {rivalries.length > 0 && (
+                <div style={{ marginTop: 28, marginBottom: 28 }}>
+                  <div className="section-label" style={{ marginBottom: 10 }}>TOP RIVALRIES</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                    {rivalries.map(rv => {
+                      const aName = state.players[rv.a]?.display_name ?? rv.a;
+                      const bName = state.players[rv.b]?.display_name ?? rv.b;
+                      const dominance = Math.abs(rv.aWins - rv.bWins) / rv.total;
+                      const color = dominance < 0.15 ? "var(--neutral)" : rv.aWins > rv.bWins ? "var(--win)" : "var(--lose)";
+                      const leader = rv.aWins >= rv.bWins ? aName : bName;
+                      return (
+                        <div key={`${rv.a}_${rv.b}`} className="panel" style={{ padding: "9px 14px", display: "flex", alignItems: "center", gap: 12 }}>
+                          <span className="player-name" style={{ minWidth: 70 }}>{aName}</span>
+                          <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 8 }}>
+                            <span className="font-mono" style={{ fontSize: "0.85rem", color: "var(--win)" }}>{rv.aWins}</span>
+                            <div style={{ flex: 1, height: 4, background: "var(--surface2)", borderRadius: 2, overflow: "hidden" }}>
+                              <div style={{ height: "100%", width: `${(rv.aWins / rv.total) * 100}%`, background: "var(--accent)", borderRadius: 2 }} />
+                            </div>
+                            <span className="font-mono" style={{ fontSize: "0.85rem", color: "var(--lose)" }}>{rv.bWins}</span>
+                          </div>
+                          <span className="player-name" style={{ minWidth: 70, textAlign: "right" }}>{bName}</span>
+                          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", minWidth: 60 }}>
+                            <span className="font-mono" style={{ fontSize: "0.6rem", color: "var(--text-dim)" }}>{rv.total} GAMES</span>
+                            <span className="font-mono" style={{ fontSize: "0.6rem", color }}>{dominance < 0.15 ? "EVEN" : `${leader.toUpperCase()} LEADS`}</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               )}
 
