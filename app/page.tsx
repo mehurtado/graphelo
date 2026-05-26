@@ -435,6 +435,12 @@ export default function Home() {
             const bName = state.players[predB]?.display_name ?? "B";
             const pA = prediction.p_a_wins;
             const pB = 1 - pA;
+            const h2h = state.games.filter(
+              g => (g.winner_id === predA && g.loser_id === predB) ||
+                   (g.winner_id === predB && g.loser_id === predA)
+            );
+            const aWins = h2h.filter(g => g.winner_id === predA).length;
+            const bWins = h2h.length - aWins;
             return (
               <div className="fade-in">
                 <div className="panel panel-accent2" style={{ padding: 18 }}>
@@ -445,6 +451,14 @@ export default function Home() {
                         <span className="player-name">{aName}</span>
                         <span className="rating-value" style={{ fontSize: "1.6rem", marginLeft: 12 }}>{pct(pA, 1)}</span>
                       </div>
+                      {h2h.length > 0 && (
+                        <div style={{ textAlign: "center", alignSelf: "flex-end" }}>
+                          <span className="font-mono" style={{ fontSize: "0.72rem", color: "var(--text-dim)" }}>RECORD </span>
+                          <span className="font-mono" style={{ fontSize: "0.85rem", color: "var(--win)" }}>{aWins}</span>
+                          <span className="font-mono" style={{ fontSize: "0.72rem", color: "var(--text-dim)" }}> — </span>
+                          <span className="font-mono" style={{ fontSize: "0.85rem", color: "var(--lose)" }}>{bWins}</span>
+                        </div>
+                      )}
                       <div style={{ textAlign: "right" }}>
                         <span className="rating-value" style={{ fontSize: "1.6rem", color: pB > pA ? "var(--accent)" : "var(--lose)", marginRight: 12 }}>{pct(pB, 1)}</span>
                         <span className="player-name">{bName}</span>
