@@ -17,7 +17,9 @@ export async function POST(req: NextRequest) {
     state.players[id] = { id, display_name: display_name.trim(), created_at: Date.now() };
     await saveState(state);
     return NextResponse.json(state.players[id], { status: 201 });
-  } catch {
-    return NextResponse.json({ error: "Failed to add player" }, { status: 500 });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[POST /api/players]", msg);
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }

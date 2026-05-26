@@ -5,7 +5,9 @@ export async function GET() {
   try {
     const state = await loadState();
     return NextResponse.json(state);
-  } catch {
-    return NextResponse.json({ error: "Failed to load state" }, { status: 500 });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[GET /api/state]", msg);
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }

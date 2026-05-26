@@ -26,8 +26,10 @@ export async function POST(req: NextRequest) {
     state.games.push(game);
     await saveState(state);
     return NextResponse.json(game, { status: 201 });
-  } catch {
-    return NextResponse.json({ error: "Failed to log game" }, { status: 500 });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[POST /api/matches]", msg);
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
 
@@ -35,7 +37,9 @@ export async function GET() {
   try {
     const state = await loadState();
     return NextResponse.json([...state.games].reverse());
-  } catch {
-    return NextResponse.json({ error: "Failed" }, { status: 500 });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[GET /api/matches]", msg);
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }

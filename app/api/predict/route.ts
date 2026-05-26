@@ -21,7 +21,9 @@ export async function GET(req: NextRequest) {
     // Full round robin ranking
     const ranking = simulateRoundRobin(state);
     return NextResponse.json(ranking);
-  } catch {
-    return NextResponse.json({ error: "Failed" }, { status: 500 });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[GET /api/predict]", msg);
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
