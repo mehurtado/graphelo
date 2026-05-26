@@ -266,7 +266,7 @@ export default function Home() {
         <div className="fade-in">
           <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
             <div className="section-label">ROUND ROBIN RANKING</div>
-            <span className="font-mono" style={{ fontSize: "0.6rem", color: "var(--text-dim)" }}>1000 RR / PAIRING · PATHS WEIGHTED 1/L · EXACT E[WINS]</span>
+            <span className="font-mono" style={{ fontSize: "0.6rem", color: "var(--text-dim)" }}>1000-TOURNAMENT MONTE CARLO · PATHS WEIGHTED 1/L · CHAMP RATE</span>
             {predAccuracy && predAccuracy.total >= 3 && (
               <span className="font-mono" style={{ fontSize: "0.6rem", color: predAccuracy.correct / predAccuracy.total > 0.65 ? "var(--win)" : "var(--text-dim)" }}>
                 MODEL {Math.round(predAccuracy.correct / predAccuracy.total * 100)}% ACC ({predAccuracy.correct}/{predAccuracy.total})
@@ -774,7 +774,7 @@ export default function Home() {
 
       <div style={{ marginTop: 36, paddingTop: 14, borderTop: "1px solid var(--border)" }}>
         <div className="font-mono" style={{ fontSize: "0.58rem", color: "var(--text-dim)", letterSpacing: "0.1em" }}>
-          GRAPHELO v2 · GRAPH PATH WEIGHTS 1/L · τ=90d · 1000-ROUND ROBIN SIM
+          GRAPHELO v2 · GRAPH PATH WEIGHTS 1/L · τ=90d · 1000-TOURNAMENT MONTE CARLO
         </div>
       </div>
     </div>

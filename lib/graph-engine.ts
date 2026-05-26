@@ -301,27 +301,33 @@ export function simulateRoundRobin(state: GraphState): RankEntry[] {
     }
   }
 
-  // Use expected wins rather than Monte Carlo sampling — exact and deterministic
-  const wins: Record<string, number> = {};
-  for (const p of players) wins[p.id] = 0;
+  const champPoints: Record<string, number> = {};
+  for (const p of players) champPoints[p.id] = 0;
 
-  for (let i = 0; i < players.length; i++) {
-    for (let j = i + 1; j < players.length; j++) {
-      const a = players[i], b = players[j];
-      const p = pMatrix[a.id][b.id];
-      wins[a.id] += SIM_ROUNDS * p;
-      wins[b.id] += SIM_ROUNDS * (1 - p);
+  for (let t = 0; t < SIM_ROUNDS; t++) {
+    const tourneyWins: Record<string, number> = {};
+    for (const p of players) tourneyWins[p.id] = 0;
+
+    for (let i = 0; i < players.length; i++) {
+      for (let j = i + 1; j < players.length; j++) {
+        const a = players[i], b = players[j];
+        if (Math.random() < pMatrix[a.id][b.id]) tourneyWins[a.id]++;
+        else tourneyWins[b.id]++;
+      }
     }
-  }
 
-  const totalRounds = (players.length - 1) * SIM_ROUNDS;
+    const maxWins = Math.max(...Object.values(tourneyWins));
+    const tied = players.filter(p => tourneyWins[p.id] === maxWins);
+    const share = 1 / tied.length;
+    for (const w of tied) champPoints[w.id] += share;
+  }
 
   return players
     .map(p => ({
       player_id: p.id,
       display_name: p.display_name,
-      tournament_wins: wins[p.id],
-      tournament_win_pct: totalRounds > 0 ? wins[p.id] / totalRounds : 0,
+      tournament_wins: champPoints[p.id],
+      tournament_win_pct: champPoints[p.id] / SIM_ROUNDS,
       stat_vec: statVecs[p.id],
       matchup_table: matchupTable[p.id],
     }))
