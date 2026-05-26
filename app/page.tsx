@@ -1,11 +1,37 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
 import type { GraphState, RankEntry, PairwisePrediction, PerGameStats } from "@/lib/graph-engine";
-import { simulateRoundRobin, predictPairwise } from "@/lib/graph-engine";
+import { simulateRoundRobin, predictPairwise, computeGlobalPathDist } from "@/lib/graph-engine";
 
 type Tab = "ranking" | "log" | "matchup" | "history" | "players";
 
 const EMPTY_STATS = (): PerGameStats => ({ kills: 0, deaths: 0, assists: 0, headshots: 0 });
+
+function PathDistChart({ dist, title }: { dist: Record<number, number>; title: string }) {
+  const maxLen = 5;
+  const entries = Array.from({ length: maxLen }, (_, i) => i + 1)
+    .map(len => ({ len, count: dist[len] ?? 0 }))
+    .filter(e => e.count > 0);
+  if (entries.length === 0) return null;
+  const max = Math.max(...entries.map(e => e.count));
+  const labels: Record<number, string> = { 1: "direct", 2: "2-hop", 3: "3-hop", 4: "4-hop", 5: "5-hop" };
+  return (
+    <div>
+      <div className="section-label" style={{ marginBottom: 8 }}>{title}</div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+        {entries.map(({ len, count }) => (
+          <div key={len} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span className="font-mono" style={{ fontSize: "0.6rem", color: "var(--text-dim)", width: 36 }}>{labels[len]}</span>
+            <div style={{ flex: 1, height: 7, background: "var(--surface2)", borderRadius: 1 }}>
+              <div style={{ width: `${Math.round((count / max) * 100)}%`, height: "100%", background: len === 1 ? "var(--accent)" : "var(--win)", borderRadius: 1, opacity: 1 - (len - 1) * 0.12 }} />
+            </div>
+            <span className="font-mono" style={{ fontSize: "0.6rem", color: "var(--text-dim)", width: 22, textAlign: "right" }}>{count}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 function StatInput({ label, stats, onChange }: {
   label: string; stats: PerGameStats; onChange: (s: PerGameStats) => void;
@@ -34,6 +60,7 @@ export default function Home() {
   const [ranking, setRanking] = useState<RankEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [globalPathDist, setGlobalPathDist] = useState<Record<number, number>>({});
 
   // Log tab
   const [logWinner, setLogWinner] = useState("");
@@ -67,7 +94,10 @@ export default function Home() {
   }, []);
 
   const computeRanking = useCallback((s: GraphState) => {
-    try { setRanking(simulateRoundRobin(s)); } catch { setError("Ranking failed"); }
+    try {
+      setRanking(simulateRoundRobin(s));
+      setGlobalPathDist(computeGlobalPathDist(s));
+    } catch { setError("Ranking failed"); }
   }, []);
 
   useEffect(() => {
@@ -281,6 +311,13 @@ export default function Home() {
                 );
               })}
 
+              {/* Path distribution */}
+              {Object.keys(globalPathDist).length > 0 && (
+                <div style={{ marginTop: 28, marginBottom: 28, maxWidth: 320 }}>
+                  <PathDistChart dist={globalPathDist} title="GRAPH PATH DISTRIBUTION (ALL MATCHUPS)" />
+                </div>
+              )}
+
               {/* Matchup matrix */}
               {ranking.length >= 2 && (
                 <div style={{ marginTop: 28 }}>
@@ -471,7 +508,7 @@ export default function Home() {
                   </div>
 
                   {/* Evidence breakdown */}
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10 }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 14 }}>
                     {[
                       { label: "DIRECT GAMES", val: prediction.direct_games.toString() },
                       { label: "GRAPH PATHS", val: prediction.paths_used.toString() },
@@ -484,6 +521,7 @@ export default function Home() {
                       </div>
                     ))}
                   </div>
+                  <PathDistChart dist={prediction.path_dist} title="PATH LENGTH BREAKDOWN" />
                 </div>
               </div>
             );

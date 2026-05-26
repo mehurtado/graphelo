@@ -42,6 +42,7 @@ export interface PairwisePrediction {
   direct_games: number;
   paths_used: number;
   evidence_mass: number;
+  path_dist: Record<number, number>; // path_length -> count
 }
 
 export interface RankEntry {
@@ -226,6 +227,17 @@ function predictInternal(
 
   const p_a_wins = Math.max(0.02, Math.min(0.98, weightedP / totalWeight));
   const graphMass = totalWeight - STAT_PRIOR_WEIGHT;
+  const path_dist: Record<number, number> = {};
+  if (direct) path_dist[1] = 1;
+  for (const path of forwardPaths) {
+    const len = Math.round(1 / path.path_weight);
+    path_dist[len] = (path_dist[len] ?? 0) + 1;
+  }
+  for (const path of reversePaths) {
+    const len = Math.round(1 / path.path_weight);
+    path_dist[len] = (path_dist[len] ?? 0) + 1;
+  }
+
   const totalPaths = (direct ? 1 : 0) + forwardPaths.length + reversePaths.length;
   const confidence = 1 - Math.exp(-0.15 * graphMass * Math.sqrt(1 + totalPaths));
 
@@ -235,6 +247,7 @@ function predictInternal(
     direct_games: directGames,
     paths_used: totalPaths,
     evidence_mass: totalWeight,
+    path_dist,
   };
 }
 
@@ -303,6 +316,24 @@ export function simulateRoundRobin(state: GraphState): RankEntry[] {
       matchup_table: matchupTable[p.id],
     }))
     .sort((a, b) => b.tournament_wins - a.tournament_wins);
+}
+
+export function computeGlobalPathDist(state: GraphState): Record<number, number> {
+  const players = Object.values(state.players);
+  if (players.length < 2) return {};
+  const adj = buildEdgeMap(state.games);
+  const dist: Record<number, number> = {};
+  for (const a of players) {
+    for (const b of players) {
+      if (a.id === b.id) continue;
+      if (directP(adj, a.id, b.id)) dist[1] = (dist[1] ?? 0) + 1;
+      for (const path of findPaths(adj, a.id, b.id)) {
+        const len = Math.round(1 / path.path_weight);
+        dist[len] = (dist[len] ?? 0) + 1;
+      }
+    }
+  }
+  return dist;
 }
 
 export function headToHead(state: GraphState, aId: string, bId: string) {
