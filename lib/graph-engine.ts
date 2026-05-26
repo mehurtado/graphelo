@@ -43,6 +43,7 @@ export interface PairwisePrediction {
   paths_used: number;
   evidence_mass: number;
   path_dist: Record<number, number>; // path_length -> count
+  top_paths: Array<{ nodes: string[]; implied_p: number; forward: boolean }>;
 }
 
 export interface RankEntry {
@@ -109,6 +110,7 @@ interface PathContrib {
   implied_p: number;
   path_weight: number; // 1 / path_length
   evidence: number;    // product of edge masses along the path
+  nodes: string[];     // player IDs along the path, source → dest
 }
 
 function findPaths(adj: EdgeMap, src: string, dst: string): PathContrib[] {
@@ -120,6 +122,7 @@ function findPaths(adj: EdgeMap, src: string, dst: string): PathContrib[] {
     depth: number,
     runningP: number,
     runningE: number,
+    path: string[],
   ) {
     if (depth > L_MAX) return;
     for (const next of Object.keys(adj[current] ?? {})) {
@@ -133,17 +136,18 @@ function findPaths(adj: EdgeMap, src: string, dst: string): PathContrib[] {
             implied_p: runningP * pEdge,
             path_weight: 1 / (depth + 1),
             evidence: runningE * mass,
+            nodes: [...path, current, next],
           });
         }
       } else {
         visited.add(next);
-        dfs(next, visited, depth + 1, runningP * pEdge, runningE * mass);
+        dfs(next, visited, depth + 1, runningP * pEdge, runningE * mass, [...path, current]);
         visited.delete(next);
       }
     }
   }
 
-  dfs(src, new Set([src]), 0, 1.0, 1.0);
+  dfs(src, new Set([src]), 0, 1.0, 1.0, []);
   return results;
 }
 
@@ -238,6 +242,11 @@ function predictInternal(
     path_dist[len] = (path_dist[len] ?? 0) + 1;
   }
 
+  const top_paths = [
+    ...forwardPaths.map(p => ({ nodes: p.nodes, implied_p: p.implied_p, forward: true,  score: p.evidence * p.path_weight })),
+    ...reversePaths.map(p => ({ nodes: p.nodes, implied_p: 1 - p.implied_p, forward: false, score: p.evidence * p.path_weight })),
+  ].sort((a, b) => b.score - a.score).slice(0, 4).map(({ nodes, implied_p, forward }) => ({ nodes, implied_p, forward }));
+
   const totalPaths = (direct ? 1 : 0) + forwardPaths.length + reversePaths.length;
   const confidence = 1 - Math.exp(-0.15 * graphMass * Math.sqrt(1 + totalPaths));
 
@@ -248,6 +257,7 @@ function predictInternal(
     paths_used: totalPaths,
     evidence_mass: totalWeight,
     path_dist,
+    top_paths,
   };
 }
 
@@ -316,6 +326,33 @@ export function simulateRoundRobin(state: GraphState): RankEntry[] {
       matchup_table: matchupTable[p.id],
     }))
     .sort((a, b) => b.tournament_wins - a.tournament_wins);
+}
+
+export function computeElo(state: GraphState): Record<string, number> {
+  const K = 32;
+  const elo: Record<string, number> = {};
+  for (const id of Object.keys(state.players)) elo[id] = 1000;
+  for (const g of [...state.games].sort((a, b) => a.timestamp - b.timestamp)) {
+    const ra = elo[g.winner_id] ?? 1000;
+    const rb = elo[g.loser_id] ?? 1000;
+    const ea = 1 / (1 + Math.pow(10, (rb - ra) / 400));
+    elo[g.winner_id] = Math.round(ra + K * (1 - ea));
+    elo[g.loser_id]  = Math.round(rb + K * (0 - (1 - ea)));
+  }
+  return elo;
+}
+
+export function computePredictionAccuracy(state: GraphState): { correct: number; total: number } {
+  const sorted = [...state.games].sort((a, b) => a.timestamp - b.timestamp);
+  let correct = 0, total = 0;
+  for (let i = 1; i < sorted.length; i++) {
+    const g = sorted[i];
+    if (!state.players[g.winner_id] || !state.players[g.loser_id]) continue;
+    const { p_a_wins } = predictPairwise({ players: state.players, games: sorted.slice(0, i) }, g.winner_id, g.loser_id);
+    if (p_a_wins > 0.5) correct++;
+    total++;
+  }
+  return { correct, total };
 }
 
 export function computeGlobalPathDist(state: GraphState): Record<number, number> {

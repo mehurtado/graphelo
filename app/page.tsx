@@ -1,7 +1,7 @@
 "use client";
-import { useState, useEffect, useCallback } from "react";
-import type { GraphState, RankEntry, PairwisePrediction, PerGameStats } from "@/lib/graph-engine";
-import { simulateRoundRobin, predictPairwise, computeGlobalPathDist } from "@/lib/graph-engine";
+import { useState, useEffect, useCallback, useMemo } from "react";
+import type { GraphState, Game, RankEntry, PairwisePrediction, PerGameStats } from "@/lib/graph-engine";
+import { simulateRoundRobin, predictPairwise, computeGlobalPathDist, computeElo, computePredictionAccuracy } from "@/lib/graph-engine";
 
 type Tab = "ranking" | "log" | "matchup" | "history" | "players";
 
@@ -33,6 +33,18 @@ function PathDistChart({ dist, title }: { dist: Record<number, number>; title: s
   );
 }
 
+function computeStreak(playerId: string, games: Game[]) {
+  const pg = [...games]
+    .filter(g => g.winner_id === playerId || g.loser_id === playerId)
+    .sort((a, b) => b.timestamp - a.timestamp);
+  if (pg.length === 0) return { count: 0, win: true, form: [] as boolean[] };
+  const form = pg.slice(0, 5).map(g => g.winner_id === playerId);
+  const win = form[0];
+  let count = 0;
+  for (const g of pg) { if ((g.winner_id === playerId) === win) count++; else break; }
+  return { count, win, form };
+}
+
 function StatInput({ label, stats, onChange }: {
   label: string; stats: PerGameStats; onChange: (s: PerGameStats) => void;
 }) {
@@ -61,6 +73,8 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [globalPathDist, setGlobalPathDist] = useState<Record<number, number>>({});
+  const [elo, setElo] = useState<Record<string, number>>({});
+  const [predAccuracy, setPredAccuracy] = useState<{ correct: number; total: number } | null>(null);
 
   // Log tab
   const [logWinner, setLogWinner] = useState("");
@@ -97,6 +111,8 @@ export default function Home() {
     try {
       setRanking(simulateRoundRobin(s));
       setGlobalPathDist(computeGlobalPathDist(s));
+      setElo(computeElo(s));
+      if (s.games.length > 1) setPredAccuracy(computePredictionAccuracy(s));
     } catch { setError("Ranking failed"); }
   }, []);
 
@@ -105,6 +121,16 @@ export default function Home() {
   }, [refresh, computeRanking]);
 
   const players = Object.values(state.players);
+
+  const upsetMap = useMemo(() => {
+    const map: Record<string, boolean> = {};
+    for (const g of state.games) {
+      if (!state.players[g.winner_id] || !state.players[g.loser_id]) continue;
+      const { p_a_wins } = predictPairwise(state, g.winner_id, g.loser_id);
+      map[g.id] = p_a_wins < 0.40;
+    }
+    return map;
+  }, [state]);
 
   async function addPlayer(e: React.FormEvent) {
     e.preventDefault();
@@ -241,6 +267,11 @@ export default function Home() {
           <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
             <div className="section-label">ROUND ROBIN RANKING</div>
             <span className="font-mono" style={{ fontSize: "0.6rem", color: "var(--text-dim)" }}>1000 RR / PAIRING · PATHS WEIGHTED 1/L · EXACT E[WINS]</span>
+            {predAccuracy && predAccuracy.total >= 3 && (
+              <span className="font-mono" style={{ fontSize: "0.6rem", color: predAccuracy.correct / predAccuracy.total > 0.65 ? "var(--win)" : "var(--text-dim)" }}>
+                MODEL {Math.round(predAccuracy.correct / predAccuracy.total * 100)}% ACC ({predAccuracy.correct}/{predAccuracy.total})
+              </span>
+            )}
             <button className="btn" style={{ marginLeft: "auto", padding: "3px 10px", fontSize: "0.7rem" }} onClick={() => computeRanking(state)}>
               ↺ RECALC
             </button>
@@ -272,8 +303,8 @@ export default function Home() {
           ) : (
             <>
               {/* Table header */}
-              <div style={{ display: "grid", gridTemplateColumns: "28px 1fr 80px 60px 60px 60px 60px 60px", gap: 10, padding: "5px 12px", marginBottom: 4 }}>
-                {["#", "PLAYER", "WIN%", "KD", "KDA", "HS%", "KPR", "GAMES"].map((h, i) => (
+              <div style={{ display: "grid", gridTemplateColumns: "28px 1fr 80px 56px 60px 60px 60px 60px 60px", gap: 10, padding: "5px 12px", marginBottom: 4 }}>
+                {["#", "PLAYER", "WIN%", "ELO", "KD", "KDA", "HS%", "KPR", "GAMES"].map((h, i) => (
                   <span key={h} className="section-label" style={{ textAlign: i > 1 ? "right" : "left" }}>{h}</span>
                 ))}
               </div>
@@ -282,10 +313,11 @@ export default function Home() {
                 const sv = r.stat_vec;
                 const barW = Math.max(4, Math.round(r.tournament_win_pct * 100));
                 const isTop = i === 0;
+                const streak = computeStreak(r.player_id, state.games);
                 return (
                   <div key={r.player_id} className="panel corner-tl" style={{
                     display: "grid",
-                    gridTemplateColumns: "28px 1fr 80px 60px 60px 60px 60px 60px",
+                    gridTemplateColumns: "28px 1fr 80px 56px 60px 60px 60px 60px 60px",
                     gap: 10, padding: "11px 12px", alignItems: "center",
                     marginBottom: 1,
                     borderColor: isTop ? "var(--accent)" : undefined,
@@ -294,14 +326,24 @@ export default function Home() {
                       {i + 1}
                     </span>
                     <div>
-                      <div className="player-name" style={{ color: isTop ? "var(--accent)" : undefined }}>{r.display_name}</div>
-                      <div className="rating-bar" style={{ marginTop: 4, width: "85%" }}>
-                        <div className="rating-bar-fill" style={{ width: `${barW}%` }} />
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <div className="player-name" style={{ color: isTop ? "var(--accent)" : undefined }}>{r.display_name}</div>
+                        {streak.count > 0 && (
+                          <span className="font-mono" style={{ fontSize: "0.55rem", padding: "1px 4px", border: "1px solid", borderColor: streak.win ? "var(--win)" : "var(--lose)", color: streak.win ? "var(--win)" : "var(--lose)", lineHeight: 1.4, flexShrink: 0 }}>
+                            {streak.win ? "W" : "L"}{streak.count}
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ display: "flex", gap: 3, marginTop: 5 }}>
+                        {streak.form.map((w, idx) => (
+                          <div key={idx} style={{ width: 6, height: 6, borderRadius: "50%", background: w ? "var(--win)" : "var(--lose)" }} />
+                        ))}
                       </div>
                     </div>
                     <div style={{ textAlign: "right" }}>
                       <span className="rating-value" style={{ fontSize: "0.95rem" }}>{pct(r.tournament_win_pct, 1)}</span>
                     </div>
+                    <div style={{ textAlign: "right" }} className="winrate">{elo[r.player_id] ?? 1000}</div>
                     <div style={{ textAlign: "right" }} className="winrate">{fmt(sv.kd)}</div>
                     <div style={{ textAlign: "right" }} className="winrate">{fmt(sv.kda)}</div>
                     <div style={{ textAlign: "right" }} className="winrate">{pct(sv.hs_pct, 1)}</div>
@@ -522,6 +564,28 @@ export default function Home() {
                     ))}
                   </div>
                   <PathDistChart dist={prediction.path_dist} title="PATH LENGTH BREAKDOWN" />
+                  {prediction.top_paths.length > 0 && (
+                    <div style={{ marginTop: 14 }}>
+                      <div className="section-label" style={{ marginBottom: 8 }}>DOMINANCE CHAINS</div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                        {prediction.top_paths.map((path, idx) => (
+                          <div key={idx} style={{ display: "flex", alignItems: "center", gap: 5, flexWrap: "wrap" }}>
+                            <span className="font-mono" style={{ fontSize: "0.58rem", color: path.forward ? "var(--win)" : "var(--lose)", width: 34, flexShrink: 0 }}>
+                              {pct(path.implied_p, 0)}
+                            </span>
+                            {path.nodes.map((nodeId, ni) => (
+                              <span key={ni} style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                                {ni > 0 && <span className="font-mono" style={{ color: "var(--text-dim)", fontSize: "0.65rem" }}>→</span>}
+                                <span className="font-mono" style={{ fontSize: "0.72rem", color: nodeId === predA ? "var(--accent)" : nodeId === predB ? "var(--lose)" : "var(--text-bright)" }}>
+                                  {state.players[nodeId]?.display_name ?? nodeId}
+                                </span>
+                              </span>
+                            ))}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             );
@@ -568,7 +632,10 @@ export default function Home() {
                     </div>
                     <div style={{ padding: "0 14px", textAlign: "center" }}>
                       <div className="font-mono" style={{ fontSize: "0.6rem", color: "var(--accent)" }}>DEF</div>
-                      <div style={{ fontSize: "0.65rem", color: "var(--text-dim)", fontFamily: "Share Tech Mono" }}>
+                      {upsetMap[g.id] && (
+                        <div className="font-mono" style={{ fontSize: "0.52rem", color: "var(--neutral)", border: "1px solid var(--neutral)", padding: "0 3px", marginTop: 2, lineHeight: 1.5 }}>UPSET</div>
+                      )}
+                      <div style={{ fontSize: "0.65rem", color: "var(--text-dim)", fontFamily: "Share Tech Mono", marginTop: 2 }}>
                         {new Date(g.timestamp).toLocaleDateString()}
                       </div>
                     </div>
@@ -586,22 +653,63 @@ export default function Home() {
               );
             };
 
-            if (historyFilter) return (
-              <>
-                {winsGames.length > 0 && (
-                  <div style={{ marginBottom: 16 }}>
-                    <div className="section-label" style={{ marginBottom: 6, color: "var(--win)" }}>WINS ({winsGames.length})</div>
-                    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>{winsGames.map(gameCard)}</div>
-                  </div>
-                )}
-                {lossesGames.length > 0 && (
-                  <div>
-                    <div className="section-label" style={{ marginBottom: 6, color: "var(--lose)" }}>LOSSES ({lossesGames.length})</div>
-                    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>{lossesGames.map(gameCard)}</div>
-                  </div>
-                )}
-              </>
-            );
+            if (historyFilter) {
+              const opponentIds = Array.from(new Set(
+                state.games
+                  .filter(g => g.winner_id === historyFilter || g.loser_id === historyFilter)
+                  .map(g => g.winner_id === historyFilter ? g.loser_id : g.winner_id)
+              ));
+              const nemeses = opponentIds.filter(oppId =>
+                lossesGames.some(g => g.winner_id === oppId) && !winsGames.some(g => g.loser_id === oppId)
+              );
+              const dominates = opponentIds.filter(oppId =>
+                winsGames.some(g => g.loser_id === oppId) && !lossesGames.some(g => g.winner_id === oppId)
+              );
+              return (
+                <>
+                  {(nemeses.length > 0 || dominates.length > 0) && (
+                    <div className="panel" style={{ padding: "10px 14px", marginBottom: 16, display: "flex", gap: 28, flexWrap: "wrap" }}>
+                      {nemeses.length > 0 && (
+                        <div>
+                          <div className="section-label" style={{ marginBottom: 6, color: "var(--lose)" }}>NEMESIS — never beaten</div>
+                          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                            {nemeses.map(id => (
+                              <span key={id} className="font-mono" style={{ fontSize: "0.72rem", color: "var(--lose)", padding: "2px 7px", border: "1px solid var(--lose)" }}>
+                                {state.players[id]?.display_name ?? id}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {dominates.length > 0 && (
+                        <div>
+                          <div className="section-label" style={{ marginBottom: 6, color: "var(--win)" }}>DOMINATES — never lost to</div>
+                          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                            {dominates.map(id => (
+                              <span key={id} className="font-mono" style={{ fontSize: "0.72rem", color: "var(--win)", padding: "2px 7px", border: "1px solid var(--win)" }}>
+                                {state.players[id]?.display_name ?? id}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {winsGames.length > 0 && (
+                    <div style={{ marginBottom: 16 }}>
+                      <div className="section-label" style={{ marginBottom: 6, color: "var(--win)" }}>WINS ({winsGames.length})</div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>{winsGames.map(gameCard)}</div>
+                    </div>
+                  )}
+                  {lossesGames.length > 0 && (
+                    <div>
+                      <div className="section-label" style={{ marginBottom: 6, color: "var(--lose)" }}>LOSSES ({lossesGames.length})</div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>{lossesGames.map(gameCard)}</div>
+                    </div>
+                  )}
+                </>
+              );
+            }
 
             return <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>{filteredGames.map(gameCard)}</div>;
           })()}
