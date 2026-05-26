@@ -19,6 +19,7 @@ export async function saveState(state: GraphState): Promise<void> {
   await put(BLOB_PATHNAME, JSON.stringify(state), {
     access: "private",
     addRandomSuffix: false,
+    allowOverwrite: true,
     contentType: "application/json",
   });
 }
