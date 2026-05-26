@@ -88,7 +88,7 @@ export default function Home() {
         body: JSON.stringify({ display_name: newName.trim() }),
       });
       if (!res.ok) { const d = await res.json(); setError(d.error); }
-      else { setNewName(""); await refresh(); }
+      else { const s = await res.json(); setState(s); setNewName(""); }
     } finally { setAddingPlayer(false); }
   }
 
@@ -103,13 +103,12 @@ export default function Home() {
       });
       if (!res.ok) { const d = await res.json(); setError(d.error); }
       else {
-        const wName = state.players[logWinner]?.display_name;
-        const lName = state.players[logLoser]?.display_name;
-        setLogMsg(`✓ ${wName} def. ${lName}`);
+        const s = await res.json();
+        setLogMsg(`✓ ${state.players[logWinner]?.display_name} def. ${state.players[logLoser]?.display_name}`);
         setLogWinner(""); setLogLoser("");
         setWinStats(EMPTY_STATS()); setLoseStats(EMPTY_STATS());
-        const s = await refresh();
-        if (s) fetchRanking();
+        setState(s);
+        fetchRanking();
       }
     } finally { setLogging(false); }
   }

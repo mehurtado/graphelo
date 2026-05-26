@@ -25,7 +25,7 @@ export async function POST(req: NextRequest) {
 
     state.games.push(game);
     await saveState(state);
-    return NextResponse.json(game, { status: 201 });
+    return NextResponse.json(state, { status: 201 });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error("[POST /api/matches]", msg);
