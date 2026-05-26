@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+export const dynamic = "force-dynamic";
 import { loadState } from "@/lib/storage";
 import { simulateRoundRobin, predictPairwise, headToHead } from "@/lib/graph-engine";
 

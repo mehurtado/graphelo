@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+export const dynamic = "force-dynamic";
 import { loadState } from "@/lib/storage";
 
 export async function GET() {

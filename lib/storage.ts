@@ -3,13 +3,17 @@ import type { GraphState } from "./graph-engine";
 
 const BLOB_PATHNAME = "graphelo/state-v2.json";
 
-// Throws on failure so API routes can log and surface the real error.
+// Throws on failure so API routes can surface the real error.
 export async function loadState(): Promise<GraphState> {
   const { blobs } = await list({ prefix: BLOB_PATHNAME, limit: 1 });
   if (blobs.length === 0) return { players: {}, games: [] };
 
-  // Private blobs require the token in the Authorization header.
-  const res = await fetch(blobs[0].url, {
+  // Append timestamp to bust Vercel's CDN cache — otherwise stale content is served
+  // after a write until the CDN edge TTL expires.
+  const url = new URL(blobs[0].url);
+  url.searchParams.set("_t", Date.now().toString());
+
+  const res = await fetch(url.toString(), {
     cache: "no-store",
     headers: { Authorization: `Bearer ${process.env.BLOB_READ_WRITE_TOKEN}` },
   });
