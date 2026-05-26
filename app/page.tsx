@@ -55,7 +55,7 @@ export default function Home() {
 
   const refresh = useCallback(async () => {
     try {
-      const res = await fetch("/api/state");
+      const res = await fetch("/api/state", { cache: "no-store" });
       const s = await res.json();
       if (!res.ok) { setError(s.error ?? "Failed to load state"); return null; }
       setState(s);
@@ -67,7 +67,7 @@ export default function Home() {
   const fetchRanking = useCallback(async () => {
     setRankLoading(true);
     try {
-      const res = await fetch("/api/predict");
+      const res = await fetch("/api/predict", { cache: "no-store" });
       setRanking(await res.json());
     } catch { setError("Ranking failed"); }
     finally { setRankLoading(false); }
