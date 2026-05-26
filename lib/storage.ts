@@ -7,7 +7,7 @@ export async function loadState(): Promise<GraphState> {
   try {
     const { blobs } = await list({ prefix: BLOB_PATHNAME, limit: 1 });
     if (blobs.length === 0) return { players: {}, games: [] };
-    const res = await fetch(blobs[0].url, { cache: "no-store" });
+    const res = await fetch(blobs[0].downloadUrl, { cache: "no-store" });
     if (!res.ok) return { players: {}, games: [] };
     return await res.json();
   } catch {
@@ -17,7 +17,7 @@ export async function loadState(): Promise<GraphState> {
 
 export async function saveState(state: GraphState): Promise<void> {
   await put(BLOB_PATHNAME, JSON.stringify(state), {
-    access: "public",
+    access: "private",
     addRandomSuffix: false,
     contentType: "application/json",
   });
