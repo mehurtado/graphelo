@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 export const dynamic = "force-dynamic";
-import { loadState, appendGame } from "@/lib/storage";
-import type { Game } from "@/lib/graph-engine";
+import { loadState, saveState } from "@/lib/storage";
 import { v4 as uuidv4 } from "uuid";
 
 export async function POST(req: NextRequest) {
@@ -14,20 +13,16 @@ export async function POST(req: NextRequest) {
     if (!state.players[winner_id]) return NextResponse.json({ error: `Unknown player: ${winner_id}` }, { status: 400 });
     if (!state.players[loser_id]) return NextResponse.json({ error: `Unknown player: ${loser_id}` }, { status: 400 });
 
-    const game: Game = {
+    state.games.push({
       id: uuidv4(),
       timestamp: Date.now(),
       winner_id,
       loser_id,
       winner_stats: winner_stats ?? { kills: 0, deaths: 0, assists: 0, headshots: 0 },
       loser_stats:  loser_stats  ?? { kills: 0, deaths: 0, assists: 0, headshots: 0 },
-    };
-    await appendGame(game);
-
-    return NextResponse.json(
-      { players: state.players, games: [...state.games, game] },
-      { status: 201 },
-    );
+    });
+    await saveState(state);
+    return NextResponse.json(state, { status: 201 });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error("[POST /api/matches]", msg);

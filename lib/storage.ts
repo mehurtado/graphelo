@@ -1,33 +1,25 @@
-import { Redis } from "@upstash/redis";
-import type { GraphState, Player, Game } from "./graph-engine";
+import { put, list } from "@vercel/blob";
+import type { GraphState } from "./graph-engine";
 
-const redis = new Redis({
-  url:   (process.env.UPSTASH_REDIS_REST_URL   ?? process.env.KV_REST_API_URL)!,
-  token: (process.env.UPSTASH_REDIS_REST_TOKEN ?? process.env.KV_REST_API_TOKEN)!,
-});
-
-// Players: Redis Hash  (field = player id, value = Player JSON)
-// Games:   Redis List  (each element = Game JSON, oldest first)
-const PLAYERS_KEY = "graphelo:players";
-const GAMES_KEY   = "graphelo:games";
+const BLOB_PATHNAME = "graphelo/state-v2.json";
 
 export async function loadState(): Promise<GraphState> {
-  const [players, games] = await Promise.all([
-    redis.hgetall<Record<string, Player>>(PLAYERS_KEY),
-    redis.lrange<Game>(GAMES_KEY, 0, -1),
-  ]);
-  return {
-    players: players ?? {},
-    games:   games   ?? [],
-  };
+  const { blobs } = await list({ prefix: BLOB_PATHNAME, limit: 1 });
+  if (blobs.length === 0) return { players: {}, games: [] };
+
+  const res = await fetch(blobs[0].url, {
+    cache: "no-store",
+    headers: { Authorization: `Bearer ${process.env.BLOB_READ_WRITE_TOKEN}` },
+  });
+  if (!res.ok) throw new Error(`Blob read failed: ${res.status} ${await res.text()}`);
+  return res.json();
 }
 
-// Atomic: hset on a single field never overwrites another player.
-export async function appendPlayer(player: Player): Promise<void> {
-  await redis.hset(PLAYERS_KEY, { [player.id]: player });
-}
-
-// Atomic: rpush appends without touching existing entries.
-export async function appendGame(game: Game): Promise<void> {
-  await redis.rpush(GAMES_KEY, game);
+export async function saveState(state: GraphState): Promise<void> {
+  await put(BLOB_PATHNAME, JSON.stringify(state), {
+    access: "private",
+    addRandomSuffix: false,
+    allowOverwrite: true,
+    contentType: "application/json",
+  });
 }
