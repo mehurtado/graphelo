@@ -258,6 +258,7 @@ export default function Home() {
 
   // History tab
   const [historyFilter, setHistoryFilter] = useState("");
+  const [selectedPlayer, setSelectedPlayer] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -505,41 +506,80 @@ export default function Home() {
                 const barW = Math.max(4, Math.round(r.tournament_win_pct * 100));
                 const isTop = i === 0;
                 const streak = computeStreak(r.player_id, state.games);
+                const isSelected = selectedPlayer === r.player_id;
                 return (
-                  <div key={r.player_id} className="panel corner-tl" style={{
-                    display: "grid",
-                    gridTemplateColumns: "28px 1fr 80px 56px 60px 60px 60px 60px 60px",
-                    gap: 10, padding: "11px 12px", alignItems: "center",
-                    marginBottom: 1,
-                    borderColor: isTop ? "var(--accent)" : undefined,
-                  }}>
-                    <span className="rank-number" style={{ color: isTop ? "var(--accent)" : undefined, fontWeight: isTop ? 700 : undefined }}>
-                      {i + 1}
-                    </span>
-                    <div>
-                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                        <div className="player-name" style={{ color: isTop ? "var(--accent)" : undefined }}>{r.display_name}</div>
-                        {streak.count > 0 && (
-                          <span className="font-mono" style={{ fontSize: "0.55rem", padding: "1px 4px", border: "1px solid", borderColor: streak.win ? "var(--win)" : "var(--lose)", color: streak.win ? "var(--win)" : "var(--lose)", lineHeight: 1.4, flexShrink: 0 }}>
-                            {streak.win ? "W" : "L"}{streak.count}
-                          </span>
-                        )}
+                  <div key={r.player_id} style={{ marginBottom: 1 }}>
+                    <div className="panel corner-tl" onClick={() => setSelectedPlayer(isSelected ? null : r.player_id)} style={{
+                      display: "grid",
+                      gridTemplateColumns: "28px 1fr 80px 56px 60px 60px 60px 60px 60px",
+                      gap: 10, padding: "11px 12px", alignItems: "center",
+                      cursor: "pointer",
+                      borderColor: isSelected ? "var(--accent)" : isTop ? "var(--accent)" : undefined,
+                    }}>
+                      <span className="rank-number" style={{ color: isTop ? "var(--accent)" : undefined, fontWeight: isTop ? 700 : undefined }}>
+                        {i + 1}
+                      </span>
+                      <div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          <div className="player-name" style={{ color: isTop ? "var(--accent)" : undefined }}>{r.display_name}</div>
+                          {streak.count > 0 && (
+                            <span className="font-mono" style={{ fontSize: "0.55rem", padding: "1px 4px", border: "1px solid", borderColor: streak.win ? "var(--win)" : "var(--lose)", color: streak.win ? "var(--win)" : "var(--lose)", lineHeight: 1.4, flexShrink: 0 }}>
+                              {streak.win ? "W" : "L"}{streak.count}
+                            </span>
+                          )}
+                        </div>
+                        <div style={{ display: "flex", gap: 3, marginTop: 5 }}>
+                          {streak.form.map((w, idx) => (
+                            <div key={idx} style={{ width: 6, height: 6, borderRadius: "50%", background: w ? "var(--win)" : "var(--lose)" }} />
+                          ))}
+                        </div>
                       </div>
-                      <div style={{ display: "flex", gap: 3, marginTop: 5 }}>
-                        {streak.form.map((w, idx) => (
-                          <div key={idx} style={{ width: 6, height: 6, borderRadius: "50%", background: w ? "var(--win)" : "var(--lose)" }} />
-                        ))}
+                      <div style={{ textAlign: "right" }}>
+                        <span className="rating-value" style={{ fontSize: "0.95rem" }}>{pct(r.tournament_win_pct, 1)}</span>
                       </div>
+                      <div style={{ textAlign: "right" }} className="winrate">{elo[r.player_id] ?? 1000}</div>
+                      <div style={{ textAlign: "right" }} className="winrate">{fmt(sv.kd)}</div>
+                      <div style={{ textAlign: "right" }} className="winrate">{fmt(sv.kda)}</div>
+                      <div style={{ textAlign: "right" }} className="winrate">{pct(sv.hs_pct, 1)}</div>
+                      <div style={{ textAlign: "right" }} className="winrate">{fmt(sv.kpr, 1)}</div>
+                      <div style={{ textAlign: "right", color: "var(--text-dim)" }} className="winrate">{sv.games_played}</div>
                     </div>
-                    <div style={{ textAlign: "right" }}>
-                      <span className="rating-value" style={{ fontSize: "0.95rem" }}>{pct(r.tournament_win_pct, 1)}</span>
-                    </div>
-                    <div style={{ textAlign: "right" }} className="winrate">{elo[r.player_id] ?? 1000}</div>
-                    <div style={{ textAlign: "right" }} className="winrate">{fmt(sv.kd)}</div>
-                    <div style={{ textAlign: "right" }} className="winrate">{fmt(sv.kda)}</div>
-                    <div style={{ textAlign: "right" }} className="winrate">{pct(sv.hs_pct, 1)}</div>
-                    <div style={{ textAlign: "right" }} className="winrate">{fmt(sv.kpr, 1)}</div>
-                    <div style={{ textAlign: "right", color: "var(--text-dim)" }} className="winrate">{sv.games_played}</div>
+                    {isSelected && (() => {
+                      const opponents = players.filter(p => p.id !== r.player_id);
+                      const rows = opponents.map(opp => {
+                        const pred = predictPairwise(state, r.player_id, opp.id);
+                        const wins = state.games.filter(g => g.winner_id === r.player_id && g.loser_id === opp.id).length;
+                        const losses = state.games.filter(g => g.loser_id === r.player_id && g.winner_id === opp.id).length;
+                        return { opp, pred, wins, losses };
+                      }).sort((a, b) => b.pred.p_a_wins - a.pred.p_a_wins);
+                      return (
+                        <div className="panel fade-in" style={{ padding: "12px 16px", borderTop: "none", marginTop: -1 }}>
+                          <div className="section-label" style={{ marginBottom: 8, color: "var(--accent)" }}>{r.display_name.toUpperCase()} — MATCHUP PROFILE</div>
+                          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                            {rows.map(({ opp, pred, wins, losses }) => {
+                              const p = pred.p_a_wins;
+                              const color = p > 0.6 ? "var(--win)" : p < 0.4 ? "var(--lose)" : "var(--neutral)";
+                              const hasGames = wins + losses > 0;
+                              return (
+                                <div key={opp.id} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                                  <span className="player-name" style={{ minWidth: 80 }}>{opp.display_name}</span>
+                                  <div style={{ flex: 1, height: 4, background: "var(--surface2)", borderRadius: 2, overflow: "hidden" }}>
+                                    <div style={{ height: "100%", width: pct(p), background: color, borderRadius: 2, transition: "width 0.3s" }} />
+                                  </div>
+                                  <span className="font-mono" style={{ fontSize: "0.75rem", color, minWidth: 36, textAlign: "right" }}>{pct(p, 0)}</span>
+                                  {hasGames && (
+                                    <span className="font-mono" style={{ fontSize: "0.62rem", color: "var(--text-dim)", minWidth: 40 }}>
+                                      <span style={{ color: "var(--win)" }}>{wins}W</span>–<span style={{ color: "var(--lose)" }}>{losses}L</span>
+                                    </span>
+                                  )}
+                                  {!hasGames && <span className="font-mono" style={{ fontSize: "0.6rem", color: "var(--text-dim)", minWidth: 40 }}>no games</span>}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
                 );
               })}
