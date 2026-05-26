@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
 import type { GraphState, RankEntry, PairwisePrediction, PerGameStats } from "@/lib/graph-engine";
+import { simulateRoundRobin, predictPairwise } from "@/lib/graph-engine";
 
 type Tab = "ranking" | "log" | "matchup" | "history" | "players";
 
@@ -32,7 +33,6 @@ export default function Home() {
   const [state, setState] = useState<GraphState>({ players: {}, games: [] });
   const [ranking, setRanking] = useState<RankEntry[]>([]);
   const [loading, setLoading] = useState(true);
-  const [rankLoading, setRankLoading] = useState(false);
   const [error, setError] = useState("");
 
   // Log tab
@@ -47,11 +47,13 @@ export default function Home() {
   const [predA, setPredA] = useState("");
   const [predB, setPredB] = useState("");
   const [prediction, setPrediction] = useState<PairwisePrediction | null>(null);
-  const [predicting, setPredicting] = useState(false);
 
   // Players tab
   const [newName, setNewName] = useState("");
   const [addingPlayer, setAddingPlayer] = useState(false);
+
+  // History tab
+  const [historyFilter, setHistoryFilter] = useState("");
 
   const refresh = useCallback(async () => {
     try {
@@ -64,18 +66,13 @@ export default function Home() {
     finally { setLoading(false); }
   }, []);
 
-  const fetchRanking = useCallback(async () => {
-    setRankLoading(true);
-    try {
-      const res = await fetch("/api/predict", { cache: "no-store" });
-      setRanking(await res.json());
-    } catch { setError("Ranking failed"); }
-    finally { setRankLoading(false); }
+  const computeRanking = useCallback((s: GraphState) => {
+    try { setRanking(simulateRoundRobin(s)); } catch { setError("Ranking failed"); }
   }, []);
 
   useEffect(() => {
-    refresh().then(s => { if (s && Object.keys(s.players).length > 0) fetchRanking(); });
-  }, [refresh, fetchRanking]);
+    refresh().then(s => { if (s) computeRanking(s); });
+  }, [refresh, computeRanking]);
 
   const players = Object.values(state.players);
 
@@ -89,7 +86,7 @@ export default function Home() {
         body: JSON.stringify({ display_name: newName.trim() }),
       });
       if (!res.ok) { const d = await res.json(); setError(d.error); }
-      else { const s = await res.json(); setState(s); setNewName(""); }
+      else { const s = await res.json(); setState(s); computeRanking(s); setNewName(""); }
     } finally { setAddingPlayer(false); }
   }
 
@@ -109,18 +106,14 @@ export default function Home() {
         setLogWinner(""); setLogLoser("");
         setWinStats(EMPTY_STATS()); setLoseStats(EMPTY_STATS());
         setState(s);
-        fetchRanking();
+        computeRanking(s);
       }
     } finally { setLogging(false); }
   }
 
-  async function getPrediction() {
+  function getPrediction() {
     if (!predA || !predB || predA === predB) return;
-    setPredicting(true); setPrediction(null);
-    try {
-      const res = await fetch(`/api/predict?a=${predA}&b=${predB}`);
-      setPrediction(await res.json());
-    } finally { setPredicting(false); }
+    setPrediction(predictPairwise(state, predA, predB));
   }
 
   function pct(n: number, dec = 0) {
@@ -130,7 +123,10 @@ export default function Home() {
   function confLabel(c: number) { return c < 0.25 ? "LOW" : c < 0.6 ? "MED" : "HIGH"; }
   function confColor(c: number) { return c < 0.25 ? "var(--lose)" : c < 0.6 ? "var(--neutral)" : "var(--win)"; }
 
-  const recentGames = [...state.games].reverse().slice(0, 30);
+  const allGamesReversed = [...state.games].reverse();
+  const filteredGames = historyFilter
+    ? allGamesReversed.filter(g => g.winner_id === historyFilter || g.loser_id === historyFilter)
+    : allGamesReversed.slice(0, 30);
 
   return (
     <div style={{ minHeight: "100vh", padding: "24px", maxWidth: 900, margin: "0 auto" }}>
@@ -175,8 +171,8 @@ export default function Home() {
           <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
             <div className="section-label">ROUND ROBIN RANKING</div>
             <span className="font-mono" style={{ fontSize: "0.6rem", color: "var(--text-dim)" }}>1000 RR / PAIRING · PATHS WEIGHTED 1/L · EXACT E[WINS]</span>
-            <button className="btn" style={{ marginLeft: "auto", padding: "3px 10px", fontSize: "0.7rem" }} onClick={fetchRanking} disabled={rankLoading}>
-              {rankLoading ? "CALCULATING..." : "↺ RECALC"}
+            <button className="btn" style={{ marginLeft: "auto", padding: "3px 10px", fontSize: "0.7rem" }} onClick={() => computeRanking(state)}>
+              ↺ RECALC
             </button>
           </div>
 
@@ -338,8 +334,8 @@ export default function Home() {
                 </select>
               </div>
             </div>
-            <button className="btn btn-primary" onClick={getPrediction} disabled={!predA || !predB || predicting} style={{ width: "100%" }}>
-              {predicting ? "TRAVERSING GRAPH..." : "PREDICT"}
+            <button className="btn btn-primary" onClick={getPrediction} disabled={!predA || !predB} style={{ width: "100%" }}>
+              PREDICT
             </button>
           </div>
 
@@ -393,10 +389,17 @@ export default function Home() {
       {/* ── HISTORY ── */}
       {tab === "history" && (
         <div className="fade-in">
-          <div className="section-label" style={{ marginBottom: 12 }}>GAME HISTORY ({state.games.length})</div>
-          {recentGames.length === 0 && <div style={{ color: "var(--text-dim)", fontSize: "0.85rem" }}>No games logged yet.</div>}
+          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
+            <div className="section-label">GAME HISTORY ({filteredGames.length}{historyFilter ? ` / ${state.games.length}` : ""})</div>
+            <select className="input" value={historyFilter} onChange={e => setHistoryFilter(e.target.value)} style={{ maxWidth: 180, padding: "3px 8px", fontSize: "0.75rem" }}>
+              <option value="">all players</option>
+              {players.map(p => <option key={p.id} value={p.id}>{p.display_name}</option>)}
+            </select>
+            {historyFilter && <button className="btn" style={{ padding: "2px 8px", fontSize: "0.7rem" }} onClick={() => setHistoryFilter("")}>clear</button>}
+          </div>
+          {filteredGames.length === 0 && <div style={{ color: "var(--text-dim)", fontSize: "0.85rem" }}>{historyFilter ? "No games for this player." : "No games logged yet."}</div>}
           <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            {recentGames.map((g, i) => {
+            {filteredGames.map((g, i) => {
               const w = state.players[g.winner_id];
               const l = state.players[g.loser_id];
               const ws = g.winner_stats;

@@ -126,11 +126,13 @@ function findPaths(adj: EdgeMap, src: string, dst: string): PathContrib[] {
       if (mass === 0) continue;
       const pEdge = mass / (mass + totalMass(adj, next, current));
       if (next === dst) {
-        results.push({
-          implied_p: runningP * pEdge,
-          path_weight: 1 / (depth + 1),
-          evidence: runningE * mass,
-        });
+        if (depth > 0) {  // exclude direct edge; handled by directP
+          results.push({
+            implied_p: runningP * pEdge,
+            path_weight: 1 / (depth + 1),
+            evidence: runningE * mass,
+          });
+        }
       } else {
         visited.add(next);
         dfs(next, visited, depth + 1, runningP * pEdge, runningE * mass);
