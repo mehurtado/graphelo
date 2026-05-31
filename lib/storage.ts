@@ -15,19 +15,24 @@ async function fetchJson<T>(url: string): Promise<T> {
 }
 
 export async function loadState(): Promise<GraphState> {
-  // One-time migration from legacy single-blob format
-  const { blobs: legacy } = await list({ prefix: LEGACY_BLOB, limit: 1 });
-  if (legacy.length > 0) {
-    const old = await fetchJson<GraphState>(legacy[0].url);
-    await savePlayers(old.players);
-    await Promise.all(old.games.map(g => saveGame(g)));
-    try { await del(legacy[0].url); } catch { /* non-critical */ }
-  }
-
   const { blobs: pBlobs } = await list({ prefix: PLAYERS_BLOB, limit: 1 });
-  const players: Record<string, Player> = pBlobs.length > 0
-    ? await fetchJson(pBlobs[0].url)
-    : {};
+
+  let players: Record<string, Player>;
+  if (pBlobs.length > 0) {
+    players = await fetchJson(pBlobs[0].url);
+  } else {
+    // One-time migration from legacy single-blob format — only runs when no players blob exists
+    const { blobs: legacy } = await list({ prefix: LEGACY_BLOB, limit: 1 });
+    if (legacy.length > 0) {
+      const old = await fetchJson<GraphState>(legacy[0].url);
+      await savePlayers(old.players);
+      await Promise.all(old.games.map(g => saveGame(g)));
+      try { await del(legacy[0].url); } catch { /* non-critical */ }
+      players = old.players;
+    } else {
+      players = {};
+    }
+  }
 
   const { blobs: gBlobs } = await list({ prefix: GAMES_PREFIX, limit: 1000 });
   const games: Game[] = gBlobs.length > 0

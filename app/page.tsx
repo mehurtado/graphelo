@@ -462,7 +462,7 @@ export default function Home() {
             <div style={{ marginLeft: "auto", display: "flex", gap: 5, alignItems: "center" }}>
               {(["tour", "elo"] as const).map(s => (
                 <button key={s} className="btn" onClick={() => setRankSort(s)} style={{ padding: "2px 8px", fontSize: "0.62rem", background: rankSort === s ? "var(--accent)" : undefined, color: rankSort === s ? "#000" : undefined }}>
-                  {s === "tour" ? "TOUR%" : "ELO"}
+                  {s === "tour" ? "CHAMP%" : "ELO"}
                 </button>
               ))}
               <button className="btn" style={{ padding: "3px 8px", fontSize: "0.7rem" }} onClick={() => computeRanking(state)}>↺</button>
@@ -488,22 +488,21 @@ export default function Home() {
             </div>
           )}
 
-          {ranking.length === 0 ? (
+          {ranking.length === 0 || state.games.length === 0 ? (
             <div style={{ color: "var(--text-dim)", fontSize: "0.85rem" }}>
               {players.length < 2 ? "Add at least 2 players and log a game." : "Log some games to generate a ranking."}
             </div>
           ) : (
             <>
               {/* Table header */}
-              <div style={{ display: "grid", gridTemplateColumns: "28px 1fr 80px 56px 60px 60px 60px 60px 60px", gap: 10, padding: "5px 12px", marginBottom: 4 }}>
-                {["#", "PLAYER", "WIN%", "ELO", "KD", "KDA", "HS%", "KPR", "GAMES"].map((h, i) => (
+              <div style={{ display: "grid", gridTemplateColumns: "28px 1fr 64px 72px 56px 60px 60px 60px 60px", gap: 10, padding: "5px 12px", marginBottom: 4 }}>
+                {["#", "PLAYER", "WIN%", "CHAMP%", "ELO", "KD", "HS%", "KPR", "GAMES"].map((h, i) => (
                   <span key={h} className="section-label" style={{ textAlign: i > 1 ? "right" : "left" }}>{h}</span>
                 ))}
               </div>
 
               {sortedRanking.map((r, i) => {
                 const sv = r.stat_vec;
-                const barW = Math.max(4, Math.round(r.tournament_win_pct * 100));
                 const isTop = i === 0;
                 const streak = computeStreak(r.player_id, state.games);
                 const isSelected = selectedPlayer === r.player_id;
@@ -511,7 +510,7 @@ export default function Home() {
                   <div key={r.player_id} style={{ marginBottom: 1 }}>
                     <div className="panel corner-tl" onClick={() => setSelectedPlayer(isSelected ? null : r.player_id)} style={{
                       display: "grid",
-                      gridTemplateColumns: "28px 1fr 80px 56px 60px 60px 60px 60px 60px",
+                      gridTemplateColumns: "28px 1fr 64px 72px 56px 60px 60px 60px 60px",
                       gap: 10, padding: "11px 12px", alignItems: "center",
                       cursor: "pointer",
                       borderColor: isSelected ? "var(--accent)" : isTop ? "var(--accent)" : undefined,
@@ -534,12 +533,14 @@ export default function Home() {
                           ))}
                         </div>
                       </div>
+                      <div style={{ textAlign: "right" }} className="winrate">
+                        {sv.games_played > 0 ? pct(sv.win_rate, 0) : "—"}
+                      </div>
                       <div style={{ textAlign: "right" }}>
                         <span className="rating-value" style={{ fontSize: "0.95rem" }}>{pct(r.tournament_win_pct, 1)}</span>
                       </div>
                       <div style={{ textAlign: "right" }} className="winrate">{elo[r.player_id] ?? 1000}</div>
                       <div style={{ textAlign: "right" }} className="winrate">{fmt(sv.kd)}</div>
-                      <div style={{ textAlign: "right" }} className="winrate">{fmt(sv.kda)}</div>
                       <div style={{ textAlign: "right" }} className="winrate">{pct(sv.hs_pct, 1)}</div>
                       <div style={{ textAlign: "right" }} className="winrate">{fmt(sv.kpr, 1)}</div>
                       <div style={{ textAlign: "right", color: "var(--text-dim)" }} className="winrate">{sv.games_played}</div>
@@ -1058,7 +1059,7 @@ export default function Home() {
                     {r && (
                       <div style={{ textAlign: "right" }}>
                         <div className="rating-value" style={{ fontSize: "0.9rem" }}>{pct(r.tournament_win_pct, 1)}</div>
-                        <div style={{ fontSize: "0.6rem", color: "var(--text-dim)", fontFamily: "Share Tech Mono" }}>TOUR WIN%</div>
+                        <div style={{ fontSize: "0.6rem", color: "var(--text-dim)", fontFamily: "Share Tech Mono" }}>CHAMP%</div>
                       </div>
                     )}
                     <button onClick={() => handleDeletePlayer(p.id)}
