@@ -495,8 +495,8 @@ export default function Home() {
           ) : (
             <>
               {/* Table header */}
-              <div style={{ display: "grid", gridTemplateColumns: "28px 1fr 64px 72px 56px 60px 60px 60px 60px", gap: 10, padding: "5px 12px", marginBottom: 4 }}>
-                {["#", "PLAYER", "WIN%", "CHAMP%", "ELO", "KD", "HS%", "KPR", "GAMES"].map((h, i) => (
+              <div style={{ display: "grid", gridTemplateColumns: "28px 1fr 64px 72px 56px 60px 60px 60px 60px 60px", gap: 10, padding: "5px 12px", marginBottom: 4 }}>
+                {["#", "PLAYER", "WIN%", "CHAMP%", "ELO", "KD", "KDA", "HS%", "KPR", "GAMES"].map((h, i) => (
                   <span key={h} className="section-label" style={{ textAlign: i > 1 ? "right" : "left" }}>{h}</span>
                 ))}
               </div>
@@ -510,7 +510,7 @@ export default function Home() {
                   <div key={r.player_id} style={{ marginBottom: 1 }}>
                     <div className="panel corner-tl" onClick={() => setSelectedPlayer(isSelected ? null : r.player_id)} style={{
                       display: "grid",
-                      gridTemplateColumns: "28px 1fr 64px 72px 56px 60px 60px 60px 60px",
+                      gridTemplateColumns: "28px 1fr 64px 72px 56px 60px 60px 60px 60px 60px",
                       gap: 10, padding: "11px 12px", alignItems: "center",
                       cursor: "pointer",
                       borderColor: isSelected ? "var(--accent)" : isTop ? "var(--accent)" : undefined,
@@ -541,6 +541,7 @@ export default function Home() {
                       </div>
                       <div style={{ textAlign: "right" }} className="winrate">{elo[r.player_id] ?? 1000}</div>
                       <div style={{ textAlign: "right" }} className="winrate">{fmt(sv.kd)}</div>
+                      <div style={{ textAlign: "right" }} className="winrate">{fmt(sv.kda)}</div>
                       <div style={{ textAlign: "right" }} className="winrate">{pct(sv.hs_pct, 1)}</div>
                       <div style={{ textAlign: "right" }} className="winrate">{fmt(sv.kpr, 1)}</div>
                       <div style={{ textAlign: "right", color: "var(--text-dim)" }} className="winrate">{sv.games_played}</div>
