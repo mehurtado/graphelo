@@ -383,11 +383,11 @@ export function computeGlobalPathDist(state: GraphState): Record<number, number>
   if (players.length < 2) return {};
   const adj = buildEdgeMap(state.games);
   const dist: Record<number, number> = {};
-  for (const a of players) {
-    for (const b of players) {
-      if (a.id === b.id) continue;
+  for (let i = 0; i < players.length; i++) {
+    for (let j = i + 1; j < players.length; j++) {
+      const a = players[i], b = players[j];
       if (directP(adj, a.id, b.id)) dist[1] = (dist[1] ?? 0) + 1;
-      for (const path of findPaths(adj, a.id, b.id)) {
+      for (const path of [...findPaths(adj, a.id, b.id), ...findPaths(adj, b.id, a.id)]) {
         const len = Math.round(1 / path.path_weight);
         dist[len] = (dist[len] ?? 0) + 1;
       }
