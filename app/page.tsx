@@ -89,7 +89,7 @@ function EloChart({
   );
 }
 
-function GraphViz({ state, elo }: { state: { players: Record<string, { display_name: string }>; games: typeof [] }; elo: Record<string, number> }) {
+function GraphViz({ state, elo }: { state: { players: Record<string, { display_name: string }>; games: Game[] }; elo: Record<string, number> }) {
   const players = Object.values(state.players as Record<string, { display_name: string; id?: string }>);
   const ids = Object.keys(state.players);
   const n = ids.length;
