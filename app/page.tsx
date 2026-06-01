@@ -506,6 +506,7 @@ function PlayerScatterPlot({ ranking }: { ranking: RankEntry[] }) {
         {xMax > 1 && <text x={xS(xMax - 0.01)} y={PT + 8} fill="var(--win)" fontSize={7} fontFamily="Share Tech Mono" textAnchor="end" opacity={0.45}>DOMINANT</text>}
         {/* Axis labels */}
         <text x={PL + cw / 2} y={H - 4} fill="var(--text-dim)" fontSize={8} fontFamily="Share Tech Mono" textAnchor="middle">K/D RATIO</text>
+        <text x={10} y={PT + ch / 2} fill="var(--text-dim)" fontSize={8} fontFamily="Share Tech Mono" textAnchor="middle" transform={`rotate(-90, 10, ${PT + ch / 2})`}>WIN RATE</text>
         {/* Bubbles */}
         {pts.map((r, i) => {
           const x = xS(r.stat_vec.kd), y = yS(r.stat_vec.win_rate), radius = bR(r.stat_vec.games_played);
