@@ -370,6 +370,19 @@ export default function Home() {
   const [rankSort, setRankSort] = useState<"tour" | "elo">("tour");
   const [metaStability, setMetaStability] = useState<number | null>(null);
   const [selectedRivalry, setSelectedRivalry] = useState<string | null>(null);
+  const [theme, setTheme] = useState<"dark" | "light">("dark");
+
+  useEffect(() => {
+    const saved = localStorage.getItem("graphelo-theme") as "dark" | "light" | null;
+    if (saved) { setTheme(saved); document.documentElement.setAttribute("data-theme", saved); }
+  }, []);
+
+  function toggleTheme() {
+    const next = theme === "dark" ? "light" : "dark";
+    setTheme(next);
+    document.documentElement.setAttribute("data-theme", next);
+    localStorage.setItem("graphelo-theme", next);
+  }
 
   // Log tab
   const [logWinner, setLogWinner] = useState("");
@@ -553,6 +566,9 @@ export default function Home() {
           <span className="font-mono" style={{ fontSize: "0.6rem", color: "var(--accent)", letterSpacing: "0.2em" }}>
             GRAPHELO // R6 CUSTOM 1v1
           </span>
+          <button onClick={toggleTheme} className="btn" style={{ marginLeft: "auto", padding: "1px 8px", fontSize: "0.6rem", letterSpacing: "0.12em" }}>
+            {theme === "dark" ? "◑ LIGHT" : "◑ DARK"}
+          </button>
         </div>
         <div className="gradient-bar" style={{ marginBottom: 8 }} />
         <div style={{ display: "flex", alignItems: "baseline", gap: 12 }}>
