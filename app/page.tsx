@@ -5,6 +5,33 @@ import { simulateRoundRobin, predictPairwise, computeGlobalPathDist, computeElo,
 
 type Tab = "ranking" | "log" | "matchup" | "history" | "players";
 
+const LIGHT_VARS: Record<string, string> = {
+  "--bg":         "#f0f4f8",
+  "--surface":    "#ffffff",
+  "--surface2":   "#e4ecf4",
+  "--border":     "#c0d0e0",
+  "--border2":    "#90a8bc",
+  "--accent":     "#0077aa",
+  "--accent2":    "#d95000",
+  "--accent3":    "#1a8800",
+  "--text":       "#1e2f3e",
+  "--text-dim":   "#607080",
+  "--text-bright":"#0a1828",
+  "--win":        "#1a8800",
+  "--lose":       "#cc1100",
+  "--neutral":    "#886600",
+};
+
+function applyTheme(t: "dark" | "light") {
+  const root = document.documentElement;
+  root.setAttribute("data-theme", t);
+  if (t === "light") {
+    for (const [k, v] of Object.entries(LIGHT_VARS)) root.style.setProperty(k, v);
+  } else {
+    for (const k of Object.keys(LIGHT_VARS)) root.style.removeProperty(k);
+  }
+}
+
 const EMPTY_STATS = (): PerGameStats => ({ kills: 0, deaths: 0 });
 
 function PathDistChart({ dist, title }: { dist: Record<number, number>; title: string }) {
@@ -374,13 +401,13 @@ export default function Home() {
 
   useEffect(() => {
     const saved = localStorage.getItem("graphelo-theme") as "dark" | "light" | null;
-    if (saved) { setTheme(saved); document.documentElement.setAttribute("data-theme", saved); }
+    if (saved) { setTheme(saved); applyTheme(saved); }
   }, []);
 
   function toggleTheme() {
     const next = theme === "dark" ? "light" : "dark";
     setTheme(next);
-    document.documentElement.setAttribute("data-theme", next);
+    applyTheme(next);
     localStorage.setItem("graphelo-theme", next);
   }
 
