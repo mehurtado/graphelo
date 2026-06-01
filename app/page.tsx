@@ -122,6 +122,12 @@ function GraphViz({ state, elo }: { state: { players: Record<string, { display_n
     }
   }
 
+  const connectedIds = ids.filter(id => edges.some(e => e.from === id || e.to === id));
+  const hasIncoming = new Set(edges.map(e => e.to));
+  const hasOutgoing = new Set(edges.map(e => e.from));
+  const sources = connectedIds.filter(id => hasOutgoing.has(id) && !hasIncoming.has(id));
+  const sinks   = connectedIds.filter(id => hasIncoming.has(id) && !hasOutgoing.has(id));
+
   return (
     <div>
       <div className="section-label" style={{ marginBottom: 8 }}>GRAPH STRUCTURE</div>
@@ -155,8 +161,12 @@ function GraphViz({ state, elo }: { state: { players: Record<string, { display_n
           const name = (state.players[id] as { display_name: string })?.display_name ?? id;
           const eloVal = elo[id] ?? 1000;
           const color = PLAYER_COLORS[i % PLAYER_COLORS.length];
+          const isSource = sources.includes(id);
+          const isSink   = sinks.includes(id);
           return (
             <g key={id}>
+              {isSource && <circle cx={x} cy={y} r={nr + 5} fill="none" stroke="var(--win)"  strokeWidth={2} strokeDasharray="4 2" opacity={0.7} />}
+              {isSink   && <circle cx={x} cy={y} r={nr + 5} fill="none" stroke="var(--lose)" strokeWidth={2} strokeDasharray="4 2" opacity={0.7} />}
               <circle cx={x} cy={y} r={nr} fill="var(--surface)" stroke={color} strokeWidth={1.5} />
               <text x={x} y={y - 4} textAnchor="middle" fill="var(--text-bright)" fontSize={9} fontFamily="Share Tech Mono" fontWeight={600}>
                 {name.slice(0, 7)}
@@ -168,6 +178,26 @@ function GraphViz({ state, elo }: { state: { players: Record<string, { display_n
           );
         })}
       </svg>
+      {(sources.length > 0 || sinks.length > 0) && (
+        <div style={{ display: "flex", gap: 20, marginTop: 10, justifyContent: "center", flexWrap: "wrap" }}>
+          {sources.map(id => (
+            <div key={id} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <svg width={12} height={12}><circle cx={6} cy={6} r={5} fill="none" stroke="var(--win)" strokeWidth={1.5} strokeDasharray="3 1.5" /></svg>
+              <span className="font-mono" style={{ fontSize: "0.6rem", color: "var(--win)" }}>
+                SOURCE — {(state.players[id] as { display_name: string })?.display_name} beats all opponents in graph
+              </span>
+            </div>
+          ))}
+          {sinks.map(id => (
+            <div key={id} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <svg width={12} height={12}><circle cx={6} cy={6} r={5} fill="none" stroke="var(--lose)" strokeWidth={1.5} strokeDasharray="3 1.5" /></svg>
+              <span className="font-mono" style={{ fontSize: "0.6rem", color: "var(--lose)" }}>
+                SINK — {(state.players[id] as { display_name: string })?.display_name} beaten by all opponents in graph
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
