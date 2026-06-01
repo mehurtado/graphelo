@@ -21,39 +21,11 @@
   --neutral: #ffcc00;
 }
 
-:root[data-theme="light"] {
-  --bg: #f0f4f8;
-  --surface: #ffffff;
-  --surface2: #e4ecf4;
-  --border: #c0d0e0;
-  --border2: #90a8bc;
-  --accent: #0077aa;
-  --accent2: #d95000;
-  --accent3: #1a8800;
-  --text: #1e2f3e;
-  --text-dim: #607080;
-  --text-bright: #0a1828;
-  --win: #1a8800;
-  --lose: #cc1100;
-  --neutral: #886600;
+body.light {
+  background: #f0f4f8;
 }
 
-[data-theme="light"] body::before { display: none; }
-
-[data-theme="light"] .btn:hover {
-  background: rgba(0, 119, 170, 0.1);
-  box-shadow: 0 0 12px rgba(0, 119, 170, 0.25);
-}
-
-[data-theme="light"] .btn-primary:hover {
-  background: #0099cc;
-  box-shadow: 0 0 16px rgba(0, 119, 170, 0.35);
-}
-
-[data-theme="light"] .live-indicator {
-  animation: none;
-  box-shadow: none;
-}
+body.light::before { display: none; }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 

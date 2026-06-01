@@ -22,15 +22,6 @@ const LIGHT_VARS: Record<string, string> = {
   "--neutral":    "#886600",
 };
 
-function applyTheme(t: "dark" | "light") {
-  const root = document.documentElement;
-  root.setAttribute("data-theme", t);
-  if (t === "light") {
-    for (const [k, v] of Object.entries(LIGHT_VARS)) root.style.setProperty(k, v);
-  } else {
-    for (const k of Object.keys(LIGHT_VARS)) root.style.removeProperty(k);
-  }
-}
 
 const EMPTY_STATS = (): PerGameStats => ({ kills: 0, deaths: 0 });
 
@@ -363,6 +354,96 @@ function computeStreak(playerId: string, games: Game[]) {
   return { count, win, form };
 }
 
+function computeArchetype(playerId: string, ranking: RankEntry[], state: GraphState): string {
+  const rank = ranking.findIndex(r => r.player_id === playerId);
+  const n = ranking.length;
+  const entry = ranking[rank];
+  if (!entry) return "";
+  const sv = entry.stat_vec;
+  if (sv.games_played < 2) return "ROOKIE";
+
+  const games = [...state.games]
+    .sort((a, b) => a.timestamp - b.timestamp)
+    .filter(g => g.winner_id === playerId || g.loser_id === playerId);
+
+  const topIds = ranking.slice(0, Math.ceil(n / 2)).map(r => r.player_id).filter(id => id !== playerId);
+  const botIds  = ranking.slice(Math.ceil(n / 2)).map(r => r.player_id).filter(id => id !== playerId);
+
+  const vsTop = games.filter(g => topIds.includes(g.winner_id === playerId ? g.loser_id : g.winner_id));
+  const vsBot = games.filter(g => botIds.includes(g.winner_id === playerId ? g.loser_id : g.winner_id));
+  const wrTop = vsTop.length > 0 ? vsTop.filter(g => g.winner_id === playerId).length / vsTop.length : -1;
+  const wrBot = vsBot.length > 0 ? vsBot.filter(g => g.winner_id === playerId).length / vsBot.length : -1;
+
+  const outcomes = games.map(g => g.winner_id === playerId);
+  const alts = outcomes.slice(1).filter((v, i) => v !== outcomes[i]).length;
+  const streakRatio = outcomes.length > 1 ? alts / (outcomes.length - 1) : 1;
+
+  const maxGames = Math.max(...ranking.map(r => r.stat_vec.games_played));
+
+  if (rank === 0 && sv.win_rate > 0.6) return "THE TYRANT";
+  if (vsTop.length >= 2 && vsBot.length >= 2 && wrTop >= 0 && wrBot >= 0 && wrTop - wrBot > 0.3) return "GIANT KILLER";
+  if (vsTop.length >= 2 && vsBot.length >= 2 && wrTop >= 0 && wrBot >= 0 && wrBot - wrTop > 0.3) return "THE BULLY";
+  if (games.length >= 5 && streakRatio < 0.3) return "THE STREAKY";
+  if (sv.games_played >= maxGames && sv.games_played >= 4) return "THE GRINDER";
+  if (sv.kd > 2.5 && sv.win_rate < 0.5) return "THE FRAGGER";
+  if (sv.kd < 1.2 && sv.win_rate > 0.55) return "THE CLOSER";
+  return "THE SOLDIER";
+}
+
+function generatePowerBlurb(
+  ranking: RankEntry[],
+  state: GraphState,
+  eloHistory: Record<string, Array<{ timestamp: number; elo: number }>>,
+): string {
+  if (ranking.length < 2 || state.games.length < 3) return "";
+
+  const top = ranking[0];
+
+  let bigMoverName = "";
+  let bigMoverGain = 0;
+  for (const r of ranking) {
+    const h = eloHistory[r.player_id] ?? [];
+    if (h.length >= 2) {
+      const gain = h[h.length - 1].elo - h[Math.max(0, h.length - 5)].elo;
+      if (gain > bigMoverGain) { bigMoverGain = gain; bigMoverName = r.display_name; }
+    }
+  }
+
+  const streaks = ranking.map(r => {
+    const pg = [...state.games]
+      .filter(g => g.winner_id === r.player_id || g.loser_id === r.player_id)
+      .sort((a, b) => b.timestamp - a.timestamp);
+    let wins = 0, losses = 0;
+    for (const g of pg) {
+      if (g.winner_id === r.player_id) { if (losses) break; wins++; }
+      else { if (wins) break; losses++; }
+    }
+    return { name: r.display_name, wins, losses };
+  });
+
+  const hottest = streaks.filter(s => s.wins  >= 2).sort((a, b) => b.wins   - a.wins)[0];
+  const coldest = streaks.filter(s => s.losses >= 2).sort((a, b) => b.losses - a.losses)[0];
+
+  const parts: string[] = [];
+
+  const topWR = Math.round(top.stat_vec.win_rate * 100);
+  const topStreakEntry = streaks.find(s => s.name === top.display_name);
+  const topStreakNote = topStreakEntry && topStreakEntry.wins >= 3 ? `, riding a ${topStreakEntry.wins}-game win streak` : "";
+  parts.push(`${top.display_name} sits at #1 with a ${topWR}% win rate${topStreakNote}.`);
+
+  if (bigMoverName && bigMoverName !== top.display_name && bigMoverGain >= 12) {
+    parts.push(`${bigMoverName} is the biggest mover, up +${Math.round(bigMoverGain)} ELO recently.`);
+  }
+
+  if (hottest && hottest.name !== top.display_name && hottest.wins >= 3) {
+    parts.push(`${hottest.name} is running hot — ${hottest.wins} straight wins.`);
+  } else if (coldest && coldest.losses >= 3) {
+    parts.push(`${coldest.name} is on a ${coldest.losses}-game skid${coldest.losses >= 5 ? " — someone call a medic" : ""}.`);
+  }
+
+  return parts.join(" ");
+}
+
 function StatInput({ label, stats, onChange }: {
   label: string; stats: PerGameStats; onChange: (s: PerGameStats) => void;
 }) {
@@ -401,13 +482,23 @@ export default function Home() {
 
   useEffect(() => {
     const saved = localStorage.getItem("graphelo-theme") as "dark" | "light" | null;
-    if (saved) { setTheme(saved); applyTheme(saved); }
+    if (saved) setTheme(saved);
   }, []);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    if (theme === "light") {
+      document.body.classList.add("light");
+      for (const [k, v] of Object.entries(LIGHT_VARS)) root.style.setProperty(k, v);
+    } else {
+      document.body.classList.remove("light");
+      for (const k of Object.keys(LIGHT_VARS)) root.style.removeProperty(k);
+    }
+  }, [theme]);
 
   function toggleTheme() {
     const next = theme === "dark" ? "light" : "dark";
     setTheme(next);
-    applyTheme(next);
     localStorage.setItem("graphelo-theme", next);
   }
 
@@ -675,6 +766,17 @@ export default function Home() {
             </div>
           ) : (
             <>
+              {/* Power rankings blurb */}
+              {(() => {
+                const blurb = generatePowerBlurb(ranking, state, eloHistory);
+                return blurb ? (
+                  <div className="panel" style={{ padding: "10px 14px", marginBottom: 10, borderColor: "var(--border2)" }}>
+                    <div className="section-label" style={{ marginBottom: 5, color: "var(--accent)" }}>POWER RANKINGS</div>
+                    <p className="font-mono" style={{ fontSize: "0.72rem", color: "var(--text)", lineHeight: 1.65 }}>{blurb}</p>
+                  </div>
+                ) : null;
+              })()}
+
               {/* Table header */}
               <div style={{ display: "grid", gridTemplateColumns: "28px 1fr 64px 72px 56px 64px 64px 72px", gap: 10, padding: "5px 12px", marginBottom: 4 }}>
                 {["#", "PLAYER", "WIN%", "CHAMP%", "ELO", "KD", "KPR", "W-L"].map((h, i) => (
@@ -687,6 +789,7 @@ export default function Home() {
                 const isTop = i === 0;
                 const streak = computeStreak(r.player_id, state.games);
                 const isSelected = selectedPlayer === r.player_id;
+                const archetype = computeArchetype(r.player_id, sortedRanking, state);
                 return (
                   <div key={r.player_id} style={{ marginBottom: 1 }}>
                     <div className="panel corner-tl" onClick={() => setSelectedPlayer(isSelected ? null : r.player_id)} style={{
@@ -708,7 +811,12 @@ export default function Home() {
                             </span>
                           )}
                         </div>
-                        <div style={{ display: "flex", gap: 3, marginTop: 5 }}>
+                        {archetype && (
+                          <div className="font-mono" style={{ fontSize: "0.52rem", color: "var(--accent2)", letterSpacing: "0.1em", marginTop: 3 }}>
+                            {archetype}
+                          </div>
+                        )}
+                        <div style={{ display: "flex", gap: 3, marginTop: 4 }}>
                           {streak.form.map((w, idx) => (
                             <div key={idx} style={{ width: 6, height: 6, borderRadius: "50%", background: w ? "var(--win)" : "var(--lose)" }} />
                           ))}
@@ -908,7 +1016,7 @@ export default function Home() {
             <div className="panel" style={{ padding: 16, marginBottom: 14 }}>
               <div style={{ display: "flex", gap: 20 }}>
                 <StatInput label={logWinner ? `${state.players[logWinner]?.display_name ?? "WINNER"} STATS` : "WINNER STATS"} stats={winStats}
-                  onChange={s => setWinStats(s)} />
+                  onChange={s => { setWinStats(s); setLoseStats({ kills: s.deaths, deaths: s.kills }); }} />
                 <div style={{ width: 1, background: "var(--border)", flexShrink: 0 }} />
                 <StatInput label={logLoser ? `${state.players[logLoser]?.display_name ?? "LOSER"} STATS` : "LOSER STATS"} stats={loseStats}
                   onChange={s => setLoseStats(s)} />
@@ -1211,7 +1319,40 @@ export default function Home() {
               );
             }
 
-            return <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>{filteredGames.map(gameCard)}</div>;
+            // Group into sessions: gap > 2h starts a new session
+            const SESSION_GAP = 2 * 60 * 60 * 1000;
+            const sessions: (typeof filteredGames)[] = [];
+            let cur: typeof filteredGames = [];
+            for (const g of filteredGames) {
+              if (cur.length === 0 || Math.abs(cur[cur.length - 1].timestamp - g.timestamp) <= SESSION_GAP) {
+                cur.push(g);
+              } else {
+                sessions.push(cur);
+                cur = [g];
+              }
+            }
+            if (cur.length > 0) sessions.push(cur);
+
+            return (
+              <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                {sessions.map((session, si) => {
+                  const d = new Date(session[0].timestamp);
+                  const label = d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }).toUpperCase();
+                  return (
+                    <div key={si}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
+                        <span className="section-label">{label}</span>
+                        <span className="font-mono" style={{ fontSize: "0.6rem", color: "var(--text-dim)" }}>·  {session.length} {session.length === 1 ? "GAME" : "GAMES"}</span>
+                        <div style={{ flex: 1, height: 1, background: "var(--border)" }} />
+                      </div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                        {session.map(gameCard)}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            );
           })()}
         </div>
       )}

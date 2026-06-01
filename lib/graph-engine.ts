@@ -179,10 +179,10 @@ export function computeStatVector(playerId: string, games: Game[]): StatVector {
 
 function statPrior(a: StatVector, b: StatVector): number {
   const logit =
-    (a.kd       - b.kd)       * 0.70 +  // kills/deaths ratio — primary skill signal
-    (a.win_rate - b.win_rate)  * 0.25 +  // direct outcome signal
-    (a.kpr      - b.kpr)      * 0.05;   // kills per round, secondary
-  return sigmoid(logit * 2.5);
+    (a.win_rate - b.win_rate) * 1.50 +  // direct outcome signal — primary
+    (a.kd       - b.kd)       * 0.35 +  // kills/deaths ratio — secondary proxy
+    (a.kpr      - b.kpr)      * 0.05;   // kills per round, tertiary
+  return sigmoid(logit);
 }
 
 // ─── Prediction Core ─────────────────────────────────────────────────────────
