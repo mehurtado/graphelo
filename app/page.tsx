@@ -444,6 +444,86 @@ function generatePowerBlurb(
   return parts.join(" ");
 }
 
+function EloSparkline({ history }: { history: Array<{ timestamp: number; elo: number }> }) {
+  if (history.length < 2) return null;
+  const W = 48, H = 14;
+  const vals = history.map(p => p.elo);
+  const min = Math.min(...vals), max = Math.max(...vals);
+  const range = max - min || 30;
+  const xS = (i: number) => (i / (vals.length - 1)) * W;
+  const yS = (v: number) => H - ((v - min) / range) * (H - 2) - 1;
+  const d = vals.map((v, i) => `${i === 0 ? "M" : "L"}${xS(i).toFixed(1)},${yS(v).toFixed(1)}`).join(" ");
+  const last = vals[vals.length - 1], first = vals[0];
+  const color = last > first + 5 ? "var(--win)" : last < first - 5 ? "var(--lose)" : "var(--text-dim)";
+  return (
+    <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} style={{ display: "block", marginLeft: "auto", overflow: "visible" }}>
+      <path d={d} fill="none" stroke={color} strokeWidth={1.2} strokeLinejoin="round" opacity={0.75} />
+      <circle cx={xS(vals.length - 1)} cy={yS(last)} r={1.8} fill={color} />
+    </svg>
+  );
+}
+
+function PlayerScatterPlot({ ranking }: { ranking: RankEntry[] }) {
+  const pts = ranking.filter(r => r.stat_vec.games_played >= 1);
+  if (pts.length < 2) return null;
+  const W = 560, H = 260, PL = 44, PR = 16, PT = 20, PB = 36;
+  const cw = W - PL - PR, ch = H - PT - PB;
+
+  const kds = pts.map(r => r.stat_vec.kd);
+  const wrs = pts.map(r => r.stat_vec.win_rate);
+  const gps = pts.map(r => r.stat_vec.games_played);
+  const kdPad = Math.max(0.4, (Math.max(...kds) - Math.min(...kds)) * 0.18);
+  const wrPad = 0.1;
+  const xMin = Math.min(...kds) - kdPad, xMax = Math.max(...kds) + kdPad;
+  const yMin = Math.max(0, Math.min(...wrs) - wrPad), yMax = Math.min(1, Math.max(...wrs) + wrPad);
+  const xS = (v: number) => PL + ((v - xMin) / (xMax - xMin)) * cw;
+  const yS = (v: number) => PT + ch - ((v - yMin) / (yMax - yMin)) * ch;
+  const maxGP = Math.max(...gps);
+  const bR = (gp: number) => Math.max(9, Math.min(22, 9 + (gp / maxGP) * 13));
+
+  const kdTicks = [Math.ceil(xMin * 2) / 2, 1, Math.floor(xMax * 2) / 2].filter((v, i, a) => a.indexOf(v) === i && v >= xMin && v <= xMax);
+  const wrTicks = [0.25, 0.5, 0.75].filter(v => v >= yMin && v <= yMax);
+
+  return (
+    <div>
+      <div className="section-label" style={{ marginBottom: 8 }}>PLAYER LANDSCAPE — KD × WIN RATE (bubble = games played)</div>
+      <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ display: "block", overflow: "visible" }}>
+        {/* Grid */}
+        {wrTicks.map(v => (
+          <g key={v}>
+            <line x1={PL} y1={yS(v)} x2={PL + cw} y2={yS(v)} stroke="var(--border)" strokeWidth={0.5} strokeDasharray="3 2" />
+            <text x={PL - 4} y={yS(v)} fill="var(--text-dim)" fontSize={7} fontFamily="Share Tech Mono" textAnchor="end" dominantBaseline="middle">{Math.round(v * 100)}%</text>
+          </g>
+        ))}
+        {kdTicks.map(v => (
+          <g key={v}>
+            <line x1={xS(v)} y1={PT} x2={xS(v)} y2={PT + ch} stroke="var(--border)" strokeWidth={0.5} strokeDasharray="3 2" />
+            <text x={xS(v)} y={PT + ch + 10} fill="var(--text-dim)" fontSize={7} fontFamily="Share Tech Mono" textAnchor="middle">{v.toFixed(1)}</text>
+          </g>
+        ))}
+        {/* Quadrant labels */}
+        {xMin < 1 && <text x={xS(xMin + 0.01)} y={PT + 8} fill="var(--lose)" fontSize={7} fontFamily="Share Tech Mono" opacity={0.45}>STRUGGLING</text>}
+        {xMax > 1 && <text x={xS(xMax - 0.01)} y={PT + 8} fill="var(--win)" fontSize={7} fontFamily="Share Tech Mono" textAnchor="end" opacity={0.45}>DOMINANT</text>}
+        {/* Axis labels */}
+        <text x={PL + cw / 2} y={H - 4} fill="var(--text-dim)" fontSize={8} fontFamily="Share Tech Mono" textAnchor="middle">K/D RATIO</text>
+        {/* Bubbles */}
+        {pts.map((r, i) => {
+          const x = xS(r.stat_vec.kd), y = yS(r.stat_vec.win_rate), radius = bR(r.stat_vec.games_played);
+          const color = PLAYER_COLORS[i % PLAYER_COLORS.length];
+          const label = r.display_name.length > 7 ? r.display_name.slice(0, 6) + "…" : r.display_name;
+          return (
+            <g key={r.player_id}>
+              <circle cx={x} cy={y} r={radius} fill={color} opacity={0.12} />
+              <circle cx={x} cy={y} r={radius} fill="none" stroke={color} strokeWidth={1.5} opacity={0.8} />
+              <text x={x} y={y + 3} textAnchor="middle" fill={color} fontSize={7.5} fontFamily="Share Tech Mono" fontWeight={600}>{label}</text>
+            </g>
+          );
+        })}
+      </svg>
+    </div>
+  );
+}
+
 function StatInput({ label, stats, onChange }: {
   label: string; stats: PerGameStats; onChange: (s: PerGameStats) => void;
 }) {
@@ -846,7 +926,10 @@ export default function Home() {
                       <div style={{ textAlign: "right" }}>
                         <span className="rating-value" style={{ fontSize: "0.95rem" }}>{pct(r.tournament_win_pct, 1)}</span>
                       </div>
-                      <div style={{ textAlign: "right" }} className="winrate">{elo[r.player_id] ?? 1000}</div>
+                      <div style={{ textAlign: "right" }}>
+                        <div className="winrate">{elo[r.player_id] ?? 1000}</div>
+                        <EloSparkline history={eloHistory[r.player_id] ?? []} />
+                      </div>
                       <div style={{ textAlign: "right" }} className="winrate">{fmt(sv.kd)}</div>
                       <div style={{ textAlign: "right" }} className="winrate">{fmt(sv.kpr, 1)}</div>
                       {(() => {
@@ -986,6 +1069,13 @@ export default function Home() {
                       );
                     })}
                   </div>
+                </div>
+              )}
+
+              {/* Player scatter plot */}
+              {ranking.length >= 2 && (
+                <div style={{ marginTop: 28, marginBottom: 28 }}>
+                  <PlayerScatterPlot ranking={sortedRanking} />
                 </div>
               )}
 
