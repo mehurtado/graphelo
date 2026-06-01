@@ -18,8 +18,6 @@ export interface Game {
 export interface PerGameStats {
   kills: number;
   deaths: number;
-  assists: number;
-  headshots: number; // HS% = headshots / kills
 }
 
 export interface GraphState {
@@ -29,8 +27,6 @@ export interface GraphState {
 
 export interface StatVector {
   kd: number;
-  kda: number;       // (K + A/2) / D
-  hs_pct: number;    // headshots / kills, 0–1
   win_rate: number;  // wins / games played, 0–1
   kpr: number;       // kills per round
   games_played: number;
@@ -157,24 +153,20 @@ function findPaths(adj: EdgeMap, src: string, dst: string): PathContrib[] {
 export function computeStatVector(playerId: string, games: Game[]): StatVector {
   const relevant = games.filter(g => g.winner_id === playerId || g.loser_id === playerId);
   if (relevant.length === 0) {
-    return { kd: 1, kda: 1, hs_pct: 0.3, win_rate: 0.5, kpr: 1, games_played: 0 };
+    return { kd: 1, win_rate: 0.5, kpr: 1, games_played: 0 };
   }
 
-  let kills = 0, deaths = 0, assists = 0, hs = 0, wins = 0;
+  let kills = 0, deaths = 0, wins = 0;
   for (const g of relevant) {
     const won = g.winner_id === playerId;
     const s = won ? g.winner_stats : g.loser_stats;
     kills += s.kills;
     deaths += s.deaths;
-    assists += s.assists;
-    hs += s.headshots;
     if (won) wins++;
   }
 
   return {
     kd:        deaths > 0 ? kills / deaths : kills,
-    kda:       deaths > 0 ? (kills + assists * 0.5) / deaths : kills,
-    hs_pct:    kills > 0  ? hs / kills : 0,
     win_rate:  wins / relevant.length,
     kpr:       kills / relevant.length,
     games_played: relevant.length,
@@ -187,10 +179,8 @@ export function computeStatVector(playerId: string, games: Game[]): StatVector {
 
 function statPrior(a: StatVector, b: StatVector): number {
   const logit =
-    (a.kd       - b.kd)       * 0.45 +  // kills/deaths ratio — primary skill signal
-    (a.hs_pct   - b.hs_pct)   * 0.22 +  // aim consistency
-    (a.win_rate - b.win_rate)  * 0.18 +  // direct outcome signal
-    (a.kda      - b.kda)      * 0.10 +  // assists rarely occur in 1v1
+    (a.kd       - b.kd)       * 0.70 +  // kills/deaths ratio — primary skill signal
+    (a.win_rate - b.win_rate)  * 0.25 +  // direct outcome signal
     (a.kpr      - b.kpr)      * 0.05;   // kills per round, secondary
   return sigmoid(logit * 2.5);
 }
@@ -409,4 +399,27 @@ export function headToHead(state: GraphState, aId: string, bId: string) {
     prediction: predictPairwise(state, aId, bId),
     recent_games: games.slice(-10).reverse(),
   };
+}
+
+export function computeMetaStability(state: GraphState): number | null {
+  const ids = Object.keys(state.players);
+  if (ids.length < 2 || state.games.length < 6) return null;
+
+  const mid = Math.floor(state.games.length / 2);
+  const eloEarly = computeElo({ players: state.players, games: state.games.slice(0, mid) });
+  const eloLate  = computeElo({ players: state.players, games: state.games.slice(mid) });
+
+  const rankOf = (eloMap: Record<string, number>) => {
+    const sorted = [...ids].sort((a, b) => (eloMap[b] ?? 1000) - (eloMap[a] ?? 1000));
+    return sorted.reduce<Record<string, number>>((acc, id, i) => { acc[id] = i; return acc; }, {});
+  };
+
+  const rEarly = rankOf(eloEarly);
+  const rLate  = rankOf(eloLate);
+
+  let dSq = 0;
+  for (const id of ids) dSq += ((rEarly[id] ?? 0) - (rLate[id] ?? 0)) ** 2;
+  const n = ids.length;
+  const rho = 1 - (6 * dSq) / (n * (n * n - 1));
+  return Math.max(0, Math.min(1, (rho + 1) / 2));
 }

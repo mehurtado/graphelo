@@ -18,8 +18,8 @@ export async function POST(req: NextRequest) {
       timestamp: Date.now(),
       winner_id,
       loser_id,
-      winner_stats: winner_stats ?? { kills: 0, deaths: 0, assists: 0, headshots: 0 },
-      loser_stats:  loser_stats  ?? { kills: 0, deaths: 0, assists: 0, headshots: 0 },
+      winner_stats: winner_stats ?? { kills: 0, deaths: 0 },
+      loser_stats:  loser_stats  ?? { kills: 0, deaths: 0 },
     };
     await saveGame(game);
     state.games.push(game);
