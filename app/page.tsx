@@ -574,11 +574,29 @@ export default function Home() {
   }, [state]);
 
   const upsetMap = useMemo(() => {
+    const sorted = [...state.games].sort((a, b) => a.timestamp - b.timestamp);
     const map: Record<string, boolean> = {};
-    for (const g of state.games) {
+    for (let i = 1; i < sorted.length; i++) {
+      const g = sorted[i];
       if (!state.players[g.winner_id] || !state.players[g.loser_id]) continue;
-      const { p_a_wins } = predictPairwise(state, g.winner_id, g.loser_id);
-      map[g.id] = p_a_wins < 0.40;
+      const hist = { players: state.players, games: sorted.slice(0, i) };
+      const { p_a_wins } = predictPairwise(hist, g.winner_id, g.loser_id);
+      if (p_a_wins < 0.35) map[g.id] = true;
+    }
+    return map;
+  }, [state]);
+
+  const revengeMap = useMemo(() => {
+    const sorted = [...state.games].sort((a, b) => a.timestamp - b.timestamp);
+    const map: Record<string, boolean> = {};
+    for (let i = 1; i < sorted.length; i++) {
+      const { id, winner_id, loser_id } = sorted[i];
+      for (let j = i - 1; j >= 0; j--) {
+        const prev = sorted[j];
+        const involves = (prev.winner_id === winner_id && prev.loser_id === loser_id) ||
+                         (prev.winner_id === loser_id  && prev.loser_id === winner_id);
+        if (involves) { if (prev.winner_id === loser_id) map[id] = true; break; }
+      }
     }
     return map;
   }, [state]);
@@ -876,6 +894,36 @@ export default function Home() {
                               );
                             })}
                           </div>
+                          {(() => {
+                            const sorted = [...state.games].sort((a, b) => a.timestamp - b.timestamp);
+                            let correct = 0, total = 0;
+                            for (let i = 1; i < sorted.length; i++) {
+                              const g = sorted[i];
+                              if (g.winner_id !== r.player_id && g.loser_id !== r.player_id) continue;
+                              if (!state.players[g.winner_id] || !state.players[g.loser_id]) continue;
+                              const hist = { players: state.players, games: sorted.slice(0, i) };
+                              const { p_a_wins } = predictPairwise(hist, g.winner_id, g.loser_id);
+                              if (p_a_wins > 0.5) correct++;
+                              total++;
+                            }
+                            if (total < 2) return null;
+                            const rate = correct / total;
+                            const rateColor = rate > 0.65 ? "var(--win)" : rate < 0.45 ? "var(--accent2)" : "var(--neutral)";
+                            return (
+                              <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px solid var(--border)" }}>
+                                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                                  <span className="section-label">MODEL ACCURACY ON YOUR GAMES</span>
+                                  <span className="font-mono" style={{ fontSize: "0.72rem", color: rateColor }}>{Math.round(rate * 100)}%</span>
+                                  <span className="font-mono" style={{ fontSize: "0.6rem", color: "var(--text-dim)" }}>({correct}/{total})</span>
+                                </div>
+                                <div style={{ height: 3, background: "var(--surface2)", borderRadius: 2, overflow: "hidden" }}>
+                                  <div style={{ height: "100%", width: `${Math.round(rate * 100)}%`, background: rateColor, borderRadius: 2 }} />
+                                </div>
+                                {rate < 0.45 && <div className="font-mono" style={{ fontSize: "0.58rem", color: "var(--accent2)", marginTop: 4 }}>model consistently underestimates this player</div>}
+                                {rate > 0.75 && <div className="font-mono" style={{ fontSize: "0.58rem", color: "var(--text-dim)", marginTop: 4 }}>model reads this player well</div>}
+                              </div>
+                            );
+                          })()}
                         </div>
                       );
                     })()}
@@ -1213,6 +1261,9 @@ export default function Home() {
                       <div className="font-mono" style={{ fontSize: "0.6rem", color: "var(--accent)" }}>DEF</div>
                       {upsetMap[g.id] && (
                         <div className="font-mono" style={{ fontSize: "0.52rem", color: "var(--neutral)", border: "1px solid var(--neutral)", padding: "0 3px", marginTop: 2, lineHeight: 1.5 }}>UPSET</div>
+                      )}
+                      {revengeMap[g.id] && (
+                        <div className="font-mono" style={{ fontSize: "0.52rem", color: "var(--accent2)", border: "1px solid var(--accent2)", padding: "0 3px", marginTop: 2, lineHeight: 1.5 }}>REVENGE</div>
                       )}
                       <div style={{ fontSize: "0.65rem", color: "var(--text-dim)", fontFamily: "Share Tech Mono", marginTop: 2 }}>
                         {new Date(g.timestamp).toLocaleDateString()}
