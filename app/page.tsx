@@ -107,6 +107,109 @@ function EloChart({
   );
 }
 
+function ConstellationMap({ ranking, state, elo }: {
+  ranking: RankEntry[];
+  state: GraphState;
+  elo: Record<string, number>;
+}) {
+  const n = ranking.length;
+  if (n < 2) return null;
+
+  const W = 620, H = 380, cx = W / 2, cy = H / 2 + 8;
+
+  function hashId(s: string) {
+    let h = 5381;
+    for (const c of s) h = ((h << 5) + h + c.charCodeAt(0)) & 0xffff;
+    return h;
+  }
+
+  const baseR = Math.min(cx, cy) * 0.60;
+  const positions = ranking.map((r, i) => {
+    const angle = (i / n) * Math.PI * 2 - Math.PI / 2;
+    const jitter = (hashId(r.player_id) % 24) - 12;
+    return { x: cx + Math.cos(angle) * (baseR + jitter), y: cy + Math.sin(angle) * (baseR + jitter), player: r };
+  });
+
+  const eloVals = ranking.map(r => elo[r.player_id] ?? 1000);
+  const minElo = Math.min(...eloVals), maxElo = Math.max(...eloVals);
+  const starR = (id: string) => {
+    const t = maxElo === minElo ? 0.5 : ((elo[id] ?? 1000) - minElo) / (maxElo - minElo);
+    return 5 + t * 9;
+  };
+
+  const edges: Array<{ x1: number; y1: number; x2: number; y2: number; color: string; opacity: number; width: number }> = [];
+  for (let i = 0; i < positions.length; i++) {
+    for (let j = i + 1; j < positions.length; j++) {
+      const a = positions[i].player, b = positions[j].player;
+      const aW = state.games.filter(g => g.winner_id === a.player_id && g.loser_id === b.player_id).length;
+      const bW = state.games.filter(g => g.winner_id === b.player_id && g.loser_id === a.player_id).length;
+      const total = aW + bW;
+      if (total === 0) continue;
+      const dom = Math.abs(aW - bW) / total;
+      const color = dom < 0.2
+        ? "rgba(180,210,255,0.7)"
+        : aW > bW ? PLAYER_COLORS[i % PLAYER_COLORS.length] : PLAYER_COLORS[j % PLAYER_COLORS.length];
+      edges.push({
+        x1: positions[i].x, y1: positions[i].y, x2: positions[j].x, y2: positions[j].y,
+        color, opacity: 0.12 + Math.min(0.45, total * 0.09) + dom * 0.2,
+        width: Math.min(2.2, 0.5 + total * 0.3),
+      });
+    }
+  }
+
+  const bgStars = Array.from({ length: 90 }, (_, i) => ({
+    x: ((i * 137.508 + 41) % (W - 30)) + 15,
+    y: ((i * 113.7  + 29) % (H - 30)) + 15,
+    r: 0.3 + (i % 5) * 0.15,
+    op: 0.08 + (i % 8) * 0.03,
+  }));
+
+  const recentCutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  const active = new Set(state.games.filter(g => g.timestamp > recentCutoff).flatMap(g => [g.winner_id, g.loser_id]));
+
+  return (
+    <div>
+      <div className="section-label" style={{ marginBottom: 8 }}>
+        CONSTELLATION MAP — star size = ELO · line weight = games played · line color = dominant player
+      </div>
+      <svg width="100%" viewBox={`0 0 ${W} ${H}`}
+        style={{ display: "block", background: "#030609", borderRadius: 2, border: "1px solid var(--border)" }}>
+        {bgStars.map((s, i) => (
+          <circle key={i} cx={s.x} cy={s.y} r={s.r} fill="white" opacity={s.op} />
+        ))}
+        {edges.map((e, i) => (
+          <line key={i} x1={e.x1} y1={e.y1} x2={e.x2} y2={e.y2}
+            stroke={e.color} strokeWidth={e.width} opacity={e.opacity} strokeLinecap="round" />
+        ))}
+        {positions.map(({ x, y, player }, i) => {
+          const color = PLAYER_COLORS[i % PLAYER_COLORS.length];
+          const r = starR(player.player_id);
+          const dur = `${2.4 + (i % 4) * 0.6}s`;
+          const del = `${i * 0.35}s`;
+          const label = player.display_name.length > 9 ? player.display_name.slice(0, 8) + "…" : player.display_name;
+          return (
+            <g key={player.player_id}>
+              <circle cx={x} cy={y} r={r + 9} fill={color}
+                style={{ animation: `star-breathe ${dur} ease-in-out infinite`, animationDelay: del }} />
+              <circle cx={x} cy={y} r={r + 4} fill={color} opacity={0.11} />
+              {active.has(player.player_id) && (
+                <circle cx={x} cy={y} r={r + 14} fill="none" stroke={color} strokeWidth={1}
+                  style={{ animation: `star-pulse 2.8s ease-out infinite`, animationDelay: del }} />
+              )}
+              <circle cx={x} cy={y} r={r} fill="#030609" stroke={color} strokeWidth={1.5} />
+              <circle cx={x} cy={y} r={r * 0.42} fill={color} opacity={0.85} />
+              <text x={x} y={y + r + 11} textAnchor="middle" fill={color}
+                fontSize={7.5} fontFamily="Share Tech Mono" opacity={0.95}>{label}</text>
+              <text x={x} y={y + r + 19} textAnchor="middle" fill="rgba(160,200,240,0.4)"
+                fontSize={6} fontFamily="Share Tech Mono">{elo[player.player_id] ?? 1000}</text>
+            </g>
+          );
+        })}
+      </svg>
+    </div>
+  );
+}
+
 function GraphViz({ state, elo }: { state: { players: Record<string, { display_name: string }>; games: Game[] }; elo: Record<string, number> }) {
   const players = Object.values(state.players as Record<string, { display_name: string; id?: string }>);
   const ids = Object.keys(state.players);
@@ -1028,9 +1131,9 @@ export default function Home() {
                 </div>
               )}
 
-              {players.length >= 2 && state.games.length > 0 && (
+              {ranking.length >= 2 && state.games.length > 0 && (
                 <div style={{ marginTop: 28, marginBottom: 28 }}>
-                  <GraphViz state={state} elo={elo} />
+                  <ConstellationMap ranking={sortedRanking} state={state} elo={elo} />
                 </div>
               )}
 
