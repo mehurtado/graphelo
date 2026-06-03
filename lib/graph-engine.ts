@@ -469,7 +469,10 @@ export function simulateRoundRobin(state: GraphState): SimulationResult {
       matchup_table:    matchupTable[p.id],
       page_rank:        pageRank[p.id] ?? 0,
     }))
-    .sort((a, b) => medianRank(a.placement_dist) - medianRank(b.placement_dist));
+    .sort((a, b) =>
+      b.tournament_win_pct - a.tournament_win_pct ||
+      medianRank(a.placement_dist) - medianRank(b.placement_dist)
+    );
 
   return { ranking, h2h_sim: h2h };
 }
