@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect, useCallback, useMemo } from "react";
-import type { GraphState, Game, RankEntry, PairwisePrediction, PerGameStats } from "@/lib/graph-engine";
-import { simulateRoundRobin, predictPairwise, computeGlobalPathDist, computeElo, computePredictionAccuracy, computeEloHistory, computeMetaStability } from "@/lib/graph-engine";
+import type { GraphState, Game, RankEntry, PairwisePrediction, PerGameStats, H2hSim } from "@/lib/graph-engine";
+import { simulateRoundRobin, predictPairwise, computeGlobalPathDist, computeElo, computePredictionAccuracy, computeEloHistory, computeMetaStability, computeReliability, computeEloVelocity } from "@/lib/graph-engine";
 
 type Tab = "ranking" | "log" | "matchup" | "history" | "players";
 
@@ -502,6 +502,38 @@ function EloSparkline({ history }: { history: Array<{ timestamp: number; elo: nu
   );
 }
 
+function wilsonCI(wins: number, total: number, z = 1.96): [number, number] {
+  if (total === 0) return [0, 1];
+  const p = wins / total;
+  const z2 = z * z;
+  const center = (p + z2 / (2 * total)) / (1 + z2 / total);
+  const hw = z * Math.sqrt(p * (1 - p) / total + z2 / (4 * total * total)) / (1 + z2 / total);
+  return [Math.max(0, center - hw), Math.min(1, center + hw)];
+}
+
+function PlacementSparkline({ dist }: { dist: number[] }) {
+  const n = dist.length;
+  if (n === 0 || dist.every(v => v === 0)) return null;
+  const max = Math.max(...dist);
+  const W = 60, H = 16;
+  const bw = W / n;
+  return (
+    <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} style={{ display: "block", marginLeft: "auto", marginTop: 3, overflow: "visible" }}>
+      {dist.map((count, rank) => {
+        const h = max > 0 ? Math.max(1, (count / max) * (H - 2)) : 0;
+        const x = rank * bw;
+        const frac = n > 1 ? rank / (n - 1) : 0;
+        const color = frac < 0.4 ? "var(--win)" : frac < 0.7 ? "var(--neutral)" : "var(--lose)";
+        const opacity = 0.4 + (1 - frac) * 0.55;
+        return (
+          <rect key={rank} x={x + 0.5} y={H - h} width={Math.max(1, bw - 1.5)} height={h}
+            fill={color} opacity={opacity} />
+        );
+      })}
+    </svg>
+  );
+}
+
 function PlayerScatterPlot({ ranking }: { ranking: RankEntry[] }) {
   const pts = ranking.filter(r => r.stat_vec.games_played >= 1);
   if (pts.length < 2) return null;
@@ -599,6 +631,7 @@ export default function Home() {
   const [metaStability, setMetaStability] = useState<number | null>(null);
   const [selectedRivalry, setSelectedRivalry] = useState<string | null>(null);
   const [theme, setTheme] = useState<"dark" | "light">("dark");
+  const [h2hSim, setH2hSim] = useState<H2hSim>({});
 
   useEffect(() => {
     const saved = localStorage.getItem("graphelo-theme") as "dark" | "light" | null;
@@ -656,7 +689,9 @@ export default function Home() {
 
   const computeRanking = useCallback((s: GraphState) => {
     try {
-      setRanking(simulateRoundRobin(s));
+      const result = simulateRoundRobin(s);
+      setRanking(result.ranking);
+      setH2hSim(result.h2h_sim);
       setGlobalPathDist(computeGlobalPathDist(s));
       setElo(computeElo(s));
       setEloHistory(computeEloHistory(s));
@@ -965,9 +1000,24 @@ export default function Home() {
                       </div>
                       <div style={{ textAlign: "right" }}>
                         <span className="rating-value" style={{ fontSize: "0.95rem" }}>{pct(r.tournament_win_pct, 1)}</span>
+                        <PlacementSparkline dist={r.placement_dist} />
                       </div>
                       <div style={{ textAlign: "right" }}>
-                        <div className="winrate">{elo[r.player_id] ?? 1000}</div>
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 4 }}>
+                          {(() => {
+                            const rel = computeReliability(r.player_id, state.games);
+                            const dotColor = rel < 0.3 ? "var(--lose)" : rel < 0.65 ? "var(--neutral)" : "var(--win)";
+                            return <div style={{ width: 5, height: 5, borderRadius: "50%", background: dotColor, flexShrink: 0 }} title={`Reliability: ${Math.round(rel * 100)}%`} />;
+                          })()}
+                          <div className="winrate">{elo[r.player_id] ?? 1000}</div>
+                          {(() => {
+                            const vel = computeEloVelocity(eloHistory[r.player_id] ?? []);
+                            if (!vel) return null;
+                            const arrow = vel.slope > 5 ? "↑" : vel.slope < -5 ? "↓" : "→";
+                            const color = vel.slope > 5 ? "var(--win)" : vel.slope < -5 ? "var(--lose)" : "var(--text-dim)";
+                            return <span className="font-mono" style={{ fontSize: "0.65rem", color, lineHeight: 1 }}>{arrow}</span>;
+                          })()}
+                        </div>
                         <EloSparkline history={eloHistory[r.player_id] ?? []} />
                       </div>
                       <div style={{ textAlign: "right" }} className="winrate">{fmt(sv.kd)}</div>
@@ -1054,6 +1104,32 @@ export default function Home() {
                                 </div>
                                 {rate < 0.45 && <div className="font-mono" style={{ fontSize: "0.58rem", color: "var(--accent2)", marginTop: 4 }}>model consistently underestimates this player</div>}
                                 {rate > 0.75 && <div className="font-mono" style={{ fontSize: "0.58rem", color: "var(--text-dim)", marginTop: 4 }}>model reads this player well</div>}
+                              </div>
+                            );
+                          })()}
+                          {/* PageRank + Reliability */}
+                          {(() => {
+                            const prScore = r.page_rank;
+                            const prRank = [...ranking].sort((a, b) => b.page_rank - a.page_rank).findIndex(x => x.player_id === r.player_id);
+                            const rel = computeReliability(r.player_id, state.games);
+                            const relLabel = rel < 0.3 ? "LOW" : rel < 0.65 ? "MED" : "HIGH";
+                            const relColor = rel < 0.3 ? "var(--lose)" : rel < 0.65 ? "var(--neutral)" : "var(--win)";
+                            return (
+                              <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px solid var(--border)", display: "flex", gap: 24 }}>
+                                <div>
+                                  <div className="section-label" style={{ marginBottom: 3 }}>PAGERANK AUTHORITY</div>
+                                  <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+                                    <span className="font-mono" style={{ fontSize: "0.82rem", color: "var(--accent)" }}>{(prScore * 100).toFixed(2)}</span>
+                                    <span className="font-mono" style={{ fontSize: "0.62rem", color: "var(--text-dim)" }}>#{prRank + 1} authority</span>
+                                  </div>
+                                </div>
+                                <div>
+                                  <div className="section-label" style={{ marginBottom: 3 }}>DATA RELIABILITY</div>
+                                  <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+                                    <span className="font-mono" style={{ fontSize: "0.82rem", color: relColor }}>{relLabel}</span>
+                                    <span className="font-mono" style={{ fontSize: "0.62rem", color: "var(--text-dim)" }}>{Math.round(rel * 100)}%</span>
+                                  </div>
+                                </div>
                               </div>
                             );
                           })()}
@@ -1373,6 +1449,41 @@ export default function Home() {
                       </div>
                     </div>
                   )}
+                  {/* Sim frequency + H2H credible interval */}
+                  {(() => {
+                    const simWins = h2hSim[predA]?.[predB] ?? 0;
+                    const simTotal = 1000;
+                    const [sLo, sHi] = wilsonCI(simWins, simTotal);
+                    const realH2h = state.games.filter(g =>
+                      (g.winner_id === predA && g.loser_id === predB) ||
+                      (g.winner_id === predB && g.loser_id === predA)
+                    );
+                    const realWins = realH2h.filter(g => g.winner_id === predA).length;
+                    const [rLo, rHi] = wilsonCI(realWins, realH2h.length);
+                    return (
+                      <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid var(--border)", display: "grid", gridTemplateColumns: realH2h.length >= 2 ? "1fr 1fr" : "1fr", gap: 10 }}>
+                        <div style={{ padding: "8px 10px", border: "1px solid var(--border)" }}>
+                          <div className="section-label" style={{ marginBottom: 4 }}>SIM FREQUENCY</div>
+                          <div className="font-mono" style={{ fontSize: "0.88rem", color: "var(--accent)" }}>
+                            {pct(simWins / simTotal, 1)}
+                            <span style={{ fontSize: "0.6rem", color: "var(--text-dim)", marginLeft: 5 }}>
+                              {Math.round(sLo * 100)}–{Math.round(sHi * 100)}% CI
+                            </span>
+                          </div>
+                          <div className="font-mono" style={{ fontSize: "0.58rem", color: "var(--text-dim)", marginTop: 2 }}>{simWins}/{simTotal} runs</div>
+                        </div>
+                        {realH2h.length >= 2 && (
+                          <div style={{ padding: "8px 10px", border: "1px solid var(--border)" }}>
+                            <div className="section-label" style={{ marginBottom: 4 }}>H2H CREDIBLE RANGE</div>
+                            <div className="font-mono" style={{ fontSize: "0.88rem", color: "var(--accent2)" }}>
+                              {Math.round(rLo * 100)}–{Math.round(rHi * 100)}%
+                            </div>
+                            <div className="font-mono" style={{ fontSize: "0.58rem", color: "var(--text-dim)", marginTop: 2 }}>{realWins}/{realH2h.length} actual games</div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
             );

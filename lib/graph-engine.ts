@@ -27,8 +27,8 @@ export interface GraphState {
 
 export interface StatVector {
   kd: number;
-  win_rate: number;  // wins / games played, 0–1
-  kpr: number;       // kills per round
+  win_rate: number;
+  kpr: number;
   games_played: number;
 }
 
@@ -38,30 +38,39 @@ export interface PairwisePrediction {
   direct_games: number;
   paths_used: number;
   evidence_mass: number;
-  path_dist: Record<number, number>; // path_length -> count
+  path_dist: Record<number, number>;
   top_paths: Array<{ nodes: string[]; implied_p: number; forward: boolean }>;
 }
 
 export interface RankEntry {
   player_id: string;
   display_name: string;
-  tournament_wins: number;
-  tournament_win_pct: number;
+  tournament_wins: number;    // exact integer: times as sole champion
+  tournament_win_pct: number; // champ_count / SIM_ROUNDS
+  placement_dist: number[];   // placement_dist[k] = # runs finishing in position k (0-indexed)
   stat_vec: StatVector;
-  matchup_table: Record<string, number>; // opponent_id → P(this player wins)
+  matchup_table: Record<string, number>;
+  page_rank: number;          // reverse PageRank score (higher = more dominant)
+}
+
+// H2H simulation counts: h2h_sim[a][b] = # simulated matches a beat b across all runs
+export type H2hSim = Record<string, Record<string, number>>;
+
+export interface SimulationResult {
+  ranking: RankEntry[];
+  h2h_sim: H2hSim;
 }
 
 // ─── Parameters ───────────────────────────────────────────────────────────────
 
-const TAU_DAYS = 90;           // recency decay half-life
-const SIM_ROUNDS = 1000;       // round robin rounds per pairing
-const L_MAX = 5;               // max path length for graph traversal
-const STAT_PRIOR_WEIGHT = 0.3; // stat-based prior weight when graph evidence is thin
-const DIRECT_MULTIPLIER = 2;   // direct head-to-head games outweigh indirect chains
+const TAU_DAYS = 90;
+const SIM_ROUNDS = 1000;
+const L_MAX = 5;
+const STAT_PRIOR_WEIGHT = 0.3;
+const DIRECT_MULTIPLIER = 2;
 
 // ─── Graph Primitives ─────────────────────────────────────────────────────────
 
-// adj[winner][loser] = array of decayed weights for each direct game
 interface EdgeMap {
   [winnerId: string]: { [loserId: string]: number[] };
 }
@@ -98,15 +107,12 @@ function directP(adj: EdgeMap, a: string, b: string): { p: number; mass: number 
 }
 
 // ─── Path Traversal ───────────────────────────────────────────────────────────
-// Finds all simple paths A → ... → B up to L_MAX hops.
-// Each path is weighted by 1/length and contributes an implied win probability
-// derived from per-hop edge win rates.
 
 interface PathContrib {
   implied_p: number;
-  path_weight: number; // 1 / path_length
-  evidence: number;    // product of edge masses along the path
-  nodes: string[];     // player IDs along the path, source → dest
+  path_weight: number;
+  evidence: number;
+  nodes: string[];
 }
 
 function findPaths(adj: EdgeMap, src: string, dst: string): PathContrib[] {
@@ -127,7 +133,7 @@ function findPaths(adj: EdgeMap, src: string, dst: string): PathContrib[] {
       if (mass === 0) continue;
       const pEdge = mass / (mass + totalMass(adj, next, current));
       if (next === dst) {
-        if (depth > 0) {  // exclude direct edge; handled by directP
+        if (depth > 0) {
           results.push({
             implied_p: runningP * pEdge,
             path_weight: 1 / (depth + 1),
@@ -148,13 +154,10 @@ function findPaths(adj: EdgeMap, src: string, dst: string): PathContrib[] {
 }
 
 // ─── Stat Vector ──────────────────────────────────────────────────────────────
-// API hook: swap this body with a fetch to r6data.com per player for ranked stats.
 
 export function computeStatVector(playerId: string, games: Game[]): StatVector {
   const relevant = games.filter(g => g.winner_id === playerId || g.loser_id === playerId);
-  if (relevant.length === 0) {
-    return { kd: 1, win_rate: 0.5, kpr: 1, games_played: 0 };
-  }
+  if (relevant.length === 0) return { kd: 1, win_rate: 0.5, kpr: 1, games_played: 0 };
 
   let kills = 0, deaths = 0, wins = 0;
   for (const g of relevant) {
@@ -166,27 +169,24 @@ export function computeStatVector(playerId: string, games: Game[]): StatVector {
   }
 
   return {
-    kd:        deaths > 0 ? kills / deaths : kills,
-    win_rate:  wins / relevant.length,
-    kpr:       kills / relevant.length,
+    kd:           deaths > 0 ? kills / deaths : kills,
+    win_rate:     wins / relevant.length,
+    kpr:          kills / relevant.length,
     games_played: relevant.length,
   };
 }
 
 // ─── Stat-Based Prior ─────────────────────────────────────────────────────────
-// P(A beats B) anchored on stat differentials. Used when graph evidence is thin.
-// Weights reflect R6 1v1 relevance; logit scaled so a 1-unit KD gap ≈ 60% win probability.
 
 function statPrior(a: StatVector, b: StatVector): number {
   const logit =
-    (a.win_rate - b.win_rate) * 1.50 +  // direct outcome signal — primary
-    (a.kd       - b.kd)       * 0.35 +  // kills/deaths ratio — secondary proxy
-    (a.kpr      - b.kpr)      * 0.05;   // kills per round, tertiary
+    (a.win_rate - b.win_rate) * 1.50 +
+    (a.kd       - b.kd)       * 0.35 +
+    (a.kpr      - b.kpr)      * 0.05;
   return sigmoid(logit);
 }
 
-// ─── Prediction Core ─────────────────────────────────────────────────────────
-// Accepts pre-built structures so the caller can share them across many predictions.
+// ─── Prediction Core ──────────────────────────────────────────────────────────
 
 function predictInternal(
   adj: EdgeMap,
@@ -197,8 +197,8 @@ function predictInternal(
 ): PairwisePrediction {
   const direct = directP(adj, aId, bId);
   const directGames = (adj[aId]?.[bId]?.length ?? 0) + (adj[bId]?.[aId]?.length ?? 0);
-  const forwardPaths = findPaths(adj, aId, bId); // a→...→b: evidence a wins
-  const reversePaths = findPaths(adj, bId, aId); // b→...→a: evidence b wins
+  const forwardPaths = findPaths(adj, aId, bId);
+  const reversePaths = findPaths(adj, bId, aId);
   const prior = statPrior(statA, statB);
 
   let totalWeight = STAT_PRIOR_WEIGHT;
@@ -216,25 +216,21 @@ function predictInternal(
   for (const path of reversePaths) {
     const w = path.evidence * path.path_weight;
     totalWeight += w;
-    weightedP += (1 - path.implied_p) * w; // b winning this chain = a loses
+    weightedP += (1 - path.implied_p) * w;
   }
 
   const p_a_wins = Math.max(0.02, Math.min(0.98, weightedP / totalWeight));
   const graphMass = totalWeight - STAT_PRIOR_WEIGHT;
   const path_dist: Record<number, number> = {};
   if (direct) path_dist[1] = 1;
-  for (const path of forwardPaths) {
-    const len = Math.round(1 / path.path_weight);
-    path_dist[len] = (path_dist[len] ?? 0) + 1;
-  }
-  for (const path of reversePaths) {
+  for (const path of [...forwardPaths, ...reversePaths]) {
     const len = Math.round(1 / path.path_weight);
     path_dist[len] = (path_dist[len] ?? 0) + 1;
   }
 
   const top_paths = [
-    ...forwardPaths.map(p => ({ nodes: p.nodes, implied_p: p.implied_p, forward: true,  score: p.evidence * p.path_weight })),
-    ...reversePaths.map(p => ({ nodes: p.nodes, implied_p: 1 - p.implied_p, forward: false, score: p.evidence * p.path_weight })),
+    ...forwardPaths.map(p => ({ nodes: p.nodes, implied_p: p.implied_p,       forward: true,  score: p.evidence * p.path_weight })),
+    ...reversePaths.map(p => ({ nodes: p.nodes, implied_p: 1 - p.implied_p,   forward: false, score: p.evidence * p.path_weight })),
   ].sort((a, b) => b.score - a.score).slice(0, 4).map(({ nodes, implied_p, forward }) => ({ nodes, implied_p, forward }));
 
   const totalPaths = (direct ? 1 : 0) + forwardPaths.length + reversePaths.length;
@@ -253,11 +249,7 @@ function predictInternal(
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
-export function predictPairwise(
-  state: GraphState,
-  aId: string,
-  bId: string,
-): PairwisePrediction {
+export function predictPairwise(state: GraphState, aId: string, bId: string): PairwisePrediction {
   const adj = buildEdgeMap(state.games);
   return predictInternal(
     adj,
@@ -268,18 +260,132 @@ export function predictPairwise(
   );
 }
 
-export function simulateRoundRobin(state: GraphState): RankEntry[] {
-  const players = Object.values(state.players);
-  if (players.length === 0) return [];
+// ─── Reverse PageRank ─────────────────────────────────────────────────────────
+// Random walker at node i follows "who beat i" edges with probability proportional
+// to decayed win weight. Stationary distribution = authority of each player.
+// High score = beaten by many other high-authority players = dominant.
 
-  // Build shared structures once instead of rebuilding per pair
+export function computePageRank(state: GraphState, d = 0.85): Record<string, number> {
+  const ids = Object.keys(state.players);
+  const n = ids.length;
+  if (n === 0) return {};
+
+  const idx: Record<string, number> = {};
+  ids.forEach((id, i) => { idx[id] = i; });
+
+  // W[a][b] = total decayed weight of player a beating player b
+  const W: number[][] = Array.from({ length: n }, () => new Array(n).fill(0));
+  for (const g of state.games) {
+    const wi = idx[g.winner_id], li = idx[g.loser_id];
+    if (wi === undefined || li === undefined) continue;
+    W[wi][li] += decayWeight(g.timestamp);
+  }
+
+  // lossWeight[i] = total decayed weight of all losses player i has suffered
+  // = Σ_j W[j][i]
+  const lossWeight = new Array(n).fill(0);
+  for (let j = 0; j < n; j++)
+    for (let i = 0; i < n; i++)
+      lossWeight[i] += W[j][i];
+
+  // Power iteration
+  // Transition: from i, go to j with prob W[j][i] / lossWeight[i]
+  // (follow who-beat-me edges; authority accumulates at players who beat many)
+  let pr = new Array(n).fill(1 / n);
+  for (let iter = 0; iter < 300; iter++) {
+    const next = new Array(n).fill((1 - d) / n);
+    for (let i = 0; i < n; i++) {
+      const lw = lossWeight[i];
+      if (lw === 0) {
+        // Never lost — distribute mass uniformly (dangling node)
+        for (let j = 0; j < n; j++) next[j] += d * pr[i] / n;
+      } else {
+        for (let j = 0; j < n; j++) {
+          if (W[j][i] > 0) next[j] += d * pr[i] * (W[j][i] / lw);
+        }
+      }
+    }
+    const diff = pr.reduce((s, v, i) => s + Math.abs(v - next[i]), 0);
+    pr = next;
+    if (diff < 1e-6) break;
+  }
+
+  const result: Record<string, number> = {};
+  ids.forEach((id, i) => { result[id] = pr[i]; });
+  return result;
+}
+
+// ─── Kendall Tau Agreement ────────────────────────────────────────────────────
+// Returns 0–1: 1 = perfect agreement, 0 = perfect disagreement.
+
+export function kendallTauAgreement(orderA: string[], orderB: string[]): number {
+  const n = orderA.length;
+  if (n <= 1) return 1;
+  const posB: Record<string, number> = {};
+  orderB.forEach((id, i) => { posB[id] = i; });
+  let concordant = 0, total = 0;
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      const bi = posB[orderA[i]] ?? 0, bj = posB[orderA[j]] ?? 0;
+      if (bi !== bj) { total++; if (bi < bj) concordant++; }
+    }
+  }
+  return total === 0 ? 1 : concordant / total;
+}
+
+// ─── Reliability Score ────────────────────────────────────────────────────────
+// 1 - exp(-n_effective / k), k=5. Games older than 2τ contribute 0.5 weight.
+
+export function computeReliability(playerId: string, games: Game[]): number {
+  const TWO_TAU_MS = 2 * TAU_DAYS * 86_400_000;
+  const relevant = games.filter(g => g.winner_id === playerId || g.loser_id === playerId);
+  const nEff = relevant.reduce((s, g) => s + (Date.now() - g.timestamp > TWO_TAU_MS ? 0.5 : 1.0), 0);
+  return 1 - Math.exp(-nEff / 5);
+}
+
+// ─── ELO Velocity ─────────────────────────────────────────────────────────────
+// slope: linear regression on last 5 ELO snapshots (ELO units per game)
+// ewma:  exponentially weighted moving average of per-game ELO deltas (λ=0.3)
+
+export function computeEloVelocity(
+  history: Array<{ timestamp: number; elo: number }>,
+): { slope: number; ewma: number } | null {
+  if (history.length < 2) return null;
+
+  // Linear regression on last 5 points
+  const recent = history.slice(-5);
+  const m = recent.length;
+  const ys = recent.map(p => p.elo);
+  const xMean = (m - 1) / 2;
+  const yMean = ys.reduce((s, y) => s + y, 0) / m;
+  const num = ys.reduce((s, y, i) => s + (i - xMean) * (y - yMean), 0);
+  const den = ys.reduce((s, _, i) => s + (i - xMean) ** 2, 0);
+  const slope = den > 0 ? num / den : 0;
+
+  // EWMA of per-game deltas
+  const lambda = 0.3;
+  let ewma = history[1].elo - history[0].elo;
+  for (let i = 2; i < history.length; i++) {
+    ewma = lambda * (history[i].elo - history[i - 1].elo) + (1 - lambda) * ewma;
+  }
+
+  return { slope, ewma };
+}
+
+// ─── Monte Carlo Simulation ───────────────────────────────────────────────────
+
+export function simulateRoundRobin(state: GraphState): SimulationResult {
+  const players = Object.values(state.players);
+  if (players.length === 0) return { ranking: [], h2h_sim: {} };
+  const n = players.length;
+
   const adj = buildEdgeMap(state.games);
   const statVecs: Record<string, StatVector> = {};
   for (const p of players) statVecs[p.id] = computeStatVector(p.id, state.games);
 
+  // Build probability and matchup tables once
   const pMatrix: Record<string, Record<string, number>> = {};
   const matchupTable: Record<string, Record<string, number>> = {};
-
   for (const a of players) {
     pMatrix[a.id] = {};
     matchupTable[a.id] = {};
@@ -291,46 +397,80 @@ export function simulateRoundRobin(state: GraphState): RankEntry[] {
     }
   }
 
-  const champPoints: Record<string, number> = {};
-  for (const p of players) champPoints[p.id] = 0;
+  // Accumulators
+  const placementCounts: Record<string, number[]> = {};
+  const champCount: Record<string, number> = {};
+  const h2h: H2hSim = {};
+  for (const p of players) {
+    placementCounts[p.id] = new Array(n).fill(0);
+    champCount[p.id] = 0;
+    h2h[p.id] = {};
+    for (const q of players) if (q.id !== p.id) h2h[p.id][q.id] = 0;
+  }
 
   for (let t = 0; t < SIM_ROUNDS; t++) {
-    const tourneyWins: Record<string, number> = {};
-    for (const p of players) tourneyWins[p.id] = 0;
+    const wins: Record<string, number> = {};
+    for (const p of players) wins[p.id] = 0;
 
     for (let i = 0; i < players.length; i++) {
       for (let j = i + 1; j < players.length; j++) {
         const a = players[i], b = players[j];
-        if (Math.random() < pMatrix[a.id][b.id]) tourneyWins[a.id]++;
-        else tourneyWins[b.id]++;
+        if (Math.random() < pMatrix[a.id][b.id]) {
+          wins[a.id]++;
+          h2h[a.id][b.id]++;
+        } else {
+          wins[b.id]++;
+          h2h[b.id][a.id]++;
+        }
       }
     }
 
-    const maxWins = Math.max(...Object.values(tourneyWins));
-    const tied = players.filter(p => tourneyWins[p.id] === maxWins);
-    const share = 1 / tied.length;
-    for (const w of tied) champPoints[w.id] += share;
+    // Record placements (sort descending by wins; ties broken arbitrarily)
+    const sorted = [...players].sort((a, b) => wins[b.id] - wins[a.id]);
+    sorted.forEach((p, rank) => { placementCounts[p.id][rank]++; });
+
+    // Sole champion only
+    const maxWins = Math.max(...players.map(p => wins[p.id]));
+    const leaders = players.filter(p => wins[p.id] === maxWins);
+    if (leaders.length === 1) champCount[leaders[0].id]++;
   }
 
-  return players
+  // Median placement for sort key
+  const medianRank = (dist: number[]) => {
+    let cum = 0;
+    for (let i = 0; i < dist.length; i++) {
+      cum += dist[i];
+      if (cum * 2 >= SIM_ROUNDS) return i;
+    }
+    return dist.length - 1;
+  };
+
+  const pageRank = computePageRank(state);
+
+  const ranking: RankEntry[] = players
     .map(p => ({
-      player_id: p.id,
-      display_name: p.display_name,
-      tournament_wins: champPoints[p.id],
-      tournament_win_pct: champPoints[p.id] / SIM_ROUNDS,
-      stat_vec: statVecs[p.id],
-      matchup_table: matchupTable[p.id],
+      player_id:        p.id,
+      display_name:     p.display_name,
+      tournament_wins:  champCount[p.id],
+      tournament_win_pct: champCount[p.id] / SIM_ROUNDS,
+      placement_dist:   placementCounts[p.id],
+      stat_vec:         statVecs[p.id],
+      matchup_table:    matchupTable[p.id],
+      page_rank:        pageRank[p.id] ?? 0,
     }))
-    .sort((a, b) => b.tournament_wins - a.tournament_wins);
+    .sort((a, b) => medianRank(a.placement_dist) - medianRank(b.placement_dist));
+
+  return { ranking, h2h_sim: h2h };
 }
+
+// ─── ELO ─────────────────────────────────────────────────────────────────────
 
 export function computeElo(state: GraphState): Record<string, number> {
   const K = 32;
   const elo: Record<string, number> = {};
   for (const id of Object.keys(state.players)) elo[id] = 1000;
   for (const g of [...state.games].sort((a, b) => a.timestamp - b.timestamp)) {
-    const ra = elo[g.winner_id] ?? 1000;
-    const rb = elo[g.loser_id] ?? 1000;
+    const ra = elo[g.winner_id] ?? 1000, rb = elo[g.loser_id] ?? 1000;
     const ea = 1 / (1 + Math.pow(10, (rb - ra) / 400));
     elo[g.winner_id] = Math.round(ra + K * (1 - ea));
     elo[g.loser_id]  = Math.round(rb + K * (0 - (1 - ea)));
@@ -344,13 +484,12 @@ export function computeEloHistory(state: GraphState): Record<string, Array<{ tim
   const history: Record<string, Array<{ timestamp: number; elo: number }>> = {};
   for (const id of Object.keys(state.players)) { current[id] = 1000; history[id] = []; }
   for (const g of [...state.games].sort((a, b) => a.timestamp - b.timestamp)) {
-    const ra = current[g.winner_id] ?? 1000;
-    const rb = current[g.loser_id] ?? 1000;
+    const ra = current[g.winner_id] ?? 1000, rb = current[g.loser_id] ?? 1000;
     const ea = 1 / (1 + Math.pow(10, (rb - ra) / 400));
     current[g.winner_id] = Math.round(ra + K * (1 - ea));
     current[g.loser_id]  = Math.round(rb + K * (0 - (1 - ea)));
     if (history[g.winner_id]) history[g.winner_id].push({ timestamp: g.timestamp, elo: current[g.winner_id] });
-    if (history[g.loser_id])  history[g.loser_id].push({ timestamp: g.timestamp, elo: current[g.loser_id] });
+    if (history[g.loser_id])  history[g.loser_id].push({  timestamp: g.timestamp, elo: current[g.loser_id] });
   }
   return history;
 }
@@ -414,9 +553,7 @@ export function computeMetaStability(state: GraphState): number | null {
     return sorted.reduce<Record<string, number>>((acc, id, i) => { acc[id] = i; return acc; }, {});
   };
 
-  const rEarly = rankOf(eloEarly);
-  const rLate  = rankOf(eloLate);
-
+  const rEarly = rankOf(eloEarly), rLate = rankOf(eloLate);
   let dSq = 0;
   for (const id of ids) dSq += ((rEarly[id] ?? 0) - (rLate[id] ?? 0)) ** 2;
   const n = ids.length;
