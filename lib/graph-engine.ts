@@ -219,7 +219,18 @@ function predictInternal(
     weightedP += (1 - path.implied_p) * w;
   }
 
-  const p_a_wins = Math.max(0.02, Math.min(0.98, weightedP / totalWeight));
+  // Shrink probability toward 0.5 based on minimum path length.
+  // Transitive inferences through long chains are less reliable than direct evidence.
+  let minPathLen = direct ? 1 : Infinity;
+  for (const path of [...forwardPaths, ...reversePaths]) {
+    const len = Math.round(1 / path.path_weight);
+    if (len < minPathLen) minPathLen = len;
+  }
+  if (!isFinite(minPathLen)) minPathLen = 5;
+  const SHRINK: Record<number, number> = { 1: 1.0, 2: 0.85, 3: 0.65, 4: 0.45, 5: 0.30 };
+  const shrink = SHRINK[Math.min(5, minPathLen)] ?? 0.30;
+  const p_raw = Math.max(0.02, Math.min(0.98, weightedP / totalWeight));
+  const p_a_wins = 0.5 + (p_raw - 0.5) * shrink;
   const graphMass = totalWeight - STAT_PRIOR_WEIGHT;
   const path_dist: Record<number, number> = {};
   if (direct) path_dist[1] = 1;

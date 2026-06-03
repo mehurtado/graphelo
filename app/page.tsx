@@ -511,6 +511,25 @@ function wilsonCI(wins: number, total: number, z = 1.96): [number, number] {
   return [Math.max(0, center - hw), Math.min(1, center + hw)];
 }
 
+// Epistemic CI: width reflects actual evidence quality, not MC sampling error.
+// Direct games → tight; long indirect paths → wide.
+function pathEvidenceCI(p: number, directGames: number, pathDist: Record<number, number>): [number, number] {
+  const minPathLen = directGames > 0 ? 1
+    : Object.keys(pathDist).length > 0
+      ? Math.min(...Object.keys(pathDist).map(Number))
+      : 6;
+  let hw: number;
+  if (directGames >= 6) hw = 0.04;
+  else if (directGames >= 3) hw = 0.05 + (6 - Math.min(6, directGames)) * 0.01;
+  else if (directGames === 2) hw = 0.09;
+  else if (directGames === 1) hw = 0.13;
+  else {
+    const indHW: Record<number, number> = { 2: 0.11, 3: 0.17, 4: 0.22, 5: 0.28 };
+    hw = indHW[Math.min(5, minPathLen)] ?? 0.28;
+  }
+  return [Math.max(0, p - hw), Math.min(1, p + hw)];
+}
+
 function PlacementSparkline({ dist }: { dist: number[] }) {
   const n = dist.length;
   if (n === 0 || dist.every(v => v === 0)) return null;
@@ -1365,18 +1384,25 @@ export default function Home() {
             );
             const aWins = h2h.filter(g => g.winner_id === predA).length;
             const bWins = h2h.length - aWins;
+            const ciA = pathEvidenceCI(pA, prediction.direct_games, prediction.path_dist);
+            const ciB: [number, number] = [1 - ciA[1], 1 - ciA[0]];
             return (
               <div className="fade-in">
                 <div className="panel panel-accent2" style={{ padding: 18 }}>
                   {/* Win probability bar */}
                   <div style={{ marginBottom: 18 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 6 }}>
                       <div>
-                        <span className="player-name">{aName}</span>
-                        <span className="rating-value" style={{ fontSize: "1.6rem", marginLeft: 12 }}>{pct(pA, 1)}</span>
+                        <div className="player-name">{aName}</div>
+                        <div style={{ display: "flex", alignItems: "baseline", gap: 5 }}>
+                          <span className="rating-value" style={{ fontSize: "1.6rem" }}>{pct(pA, 1)}</span>
+                          <span className="font-mono" style={{ fontSize: "0.68rem", color: "var(--text-dim)", letterSpacing: "0.02em" }}>
+                            ({Math.round(ciA[0] * 100)}–{Math.round(ciA[1] * 100)}%)
+                          </span>
+                        </div>
                       </div>
                       {h2h.length > 0 && (
-                        <div style={{ textAlign: "center", alignSelf: "flex-end" }}>
+                        <div style={{ textAlign: "center", paddingBottom: 2 }}>
                           <span className="font-mono" style={{ fontSize: "0.72rem", color: "var(--text-dim)" }}>RECORD </span>
                           <span className="font-mono" style={{ fontSize: "0.85rem", color: "var(--win)" }}>{aWins}</span>
                           <span className="font-mono" style={{ fontSize: "0.72rem", color: "var(--text-dim)" }}> — </span>
@@ -1384,8 +1410,13 @@ export default function Home() {
                         </div>
                       )}
                       <div style={{ textAlign: "right" }}>
-                        <span className="rating-value" style={{ fontSize: "1.6rem", color: pB > pA ? "var(--accent)" : "var(--lose)", marginRight: 12 }}>{pct(pB, 1)}</span>
-                        <span className="player-name">{bName}</span>
+                        <div className="player-name">{bName}</div>
+                        <div style={{ display: "flex", alignItems: "baseline", gap: 5, justifyContent: "flex-end" }}>
+                          <span className="font-mono" style={{ fontSize: "0.68rem", color: "var(--text-dim)", letterSpacing: "0.02em" }}>
+                            ({Math.round(ciB[0] * 100)}–{Math.round(ciB[1] * 100)}%)
+                          </span>
+                          <span className="rating-value" style={{ fontSize: "1.6rem", color: pB > pA ? "var(--accent)" : "var(--lose)" }}>{pct(pB, 1)}</span>
+                        </div>
                       </div>
                     </div>
                     {/* Split bar */}
@@ -1449,38 +1480,17 @@ export default function Home() {
                       </div>
                     </div>
                   )}
-                  {/* Sim frequency + H2H credible interval */}
+                  {/* Compact sim metadata */}
                   {(() => {
                     const simWins = h2hSim[predA]?.[predB] ?? 0;
-                    const simTotal = 1000;
-                    const [sLo, sHi] = wilsonCI(simWins, simTotal);
-                    const realH2h = state.games.filter(g =>
-                      (g.winner_id === predA && g.loser_id === predB) ||
-                      (g.winner_id === predB && g.loser_id === predA)
-                    );
-                    const realWins = realH2h.filter(g => g.winner_id === predA).length;
-                    const [rLo, rHi] = wilsonCI(realWins, realH2h.length);
                     return (
-                      <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid var(--border)", display: "grid", gridTemplateColumns: realH2h.length >= 2 ? "1fr 1fr" : "1fr", gap: 10 }}>
-                        <div style={{ padding: "8px 10px", border: "1px solid var(--border)" }}>
-                          <div className="section-label" style={{ marginBottom: 4 }}>SIM FREQUENCY</div>
-                          <div className="font-mono" style={{ fontSize: "0.88rem", color: "var(--accent)" }}>
-                            {pct(simWins / simTotal, 1)}
-                            <span style={{ fontSize: "0.6rem", color: "var(--text-dim)", marginLeft: 5 }}>
-                              {Math.round(sLo * 100)}–{Math.round(sHi * 100)}% CI
-                            </span>
-                          </div>
-                          <div className="font-mono" style={{ fontSize: "0.58rem", color: "var(--text-dim)", marginTop: 2 }}>{simWins}/{simTotal} runs</div>
-                        </div>
-                        {realH2h.length >= 2 && (
-                          <div style={{ padding: "8px 10px", border: "1px solid var(--border)" }}>
-                            <div className="section-label" style={{ marginBottom: 4 }}>H2H CREDIBLE RANGE</div>
-                            <div className="font-mono" style={{ fontSize: "0.88rem", color: "var(--accent2)" }}>
-                              {Math.round(rLo * 100)}–{Math.round(rHi * 100)}%
-                            </div>
-                            <div className="font-mono" style={{ fontSize: "0.58rem", color: "var(--text-dim)", marginTop: 2 }}>{realWins}/{realH2h.length} actual games</div>
-                          </div>
-                        )}
+                      <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px solid var(--border)" }}>
+                        <span className="font-mono" style={{ fontSize: "0.6rem", color: "var(--text-dim)" }}>
+                          {simWins}/1000 sim runs
+                          {h2h.length > 0
+                            ? ` · direct record ${aWins}W–${bWins}L`
+                            : ` · no direct games — CI from ${Math.min(...Object.keys(prediction.path_dist).map(Number).filter(k => k > 0), 5)}-hop paths`}
+                        </span>
                       </div>
                     );
                   })()}
