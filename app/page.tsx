@@ -390,6 +390,45 @@ function computeArchetype(playerId: string, ranking: RankEntry[], state: GraphSt
   return "THE SOLDIER";
 }
 
+function predictScore(
+  state: GraphState,
+  aId: string,
+  bId: string,
+  p_a_wins: number,
+): { aKills: number; bKills: number } {
+  const games = state.games;
+  if (games.length === 0) return { aKills: 7, bKills: 5 };
+
+  const globalWinKills  = games.reduce((s, g) => s + g.winner_stats.kills, 0) / games.length;
+  const globalLoseKills = games.reduce((s, g) => s + g.loser_stats.kills,  0) / games.length;
+
+  const stats = (id: string) => {
+    const won  = games.filter(g => g.winner_id === id);
+    const lost = games.filter(g => g.loser_id  === id);
+    return {
+      win:  won.length  >= 2 ? won.reduce( (s, g) => s + g.winner_stats.kills, 0) / won.length  : null,
+      lose: lost.length >= 2 ? lost.reduce((s, g) => s + g.loser_stats.kills,  0) / lost.length : null,
+    };
+  };
+
+  const a = stats(aId), b = stats(bId);
+  const blend = (personal: number | null, global: number) =>
+    personal !== null ? personal * 0.65 + global * 0.35 : global;
+
+  let aKills: number, bKills: number;
+  if (p_a_wins >= 0.5) {
+    aKills = Math.round(blend(a.win,  globalWinKills));
+    bKills = Math.round(blend(b.lose, globalLoseKills));
+    if (bKills >= aKills) bKills = aKills - 1;
+  } else {
+    bKills = Math.round(blend(b.win,  globalWinKills));
+    aKills = Math.round(blend(a.lose, globalLoseKills));
+    if (aKills >= bKills) aKills = bKills - 1;
+  }
+
+  return { aKills: Math.max(0, aKills), bKills: Math.max(0, bKills) };
+}
+
 function generatePowerBlurb(
   ranking: RankEntry[],
   state: GraphState,
@@ -968,6 +1007,16 @@ export default function Home() {
                                     <div style={{ height: "100%", width: pct(p), background: color, borderRadius: 2, transition: "width 0.3s" }} />
                                   </div>
                                   <span className="font-mono" style={{ fontSize: "0.75rem", color, minWidth: 36, textAlign: "right" }}>{pct(p, 0)}</span>
+                                  {(() => {
+                                    const { aKills, bKills } = predictScore(state, r.player_id, opp.id, p);
+                                    return (
+                                      <span className="font-mono" style={{ fontSize: "0.65rem", color: "var(--text-dim)", minWidth: 36, textAlign: "right" }}>
+                                        <span style={{ color: p >= 0.5 ? "var(--text-bright)" : "var(--text-dim)" }}>{aKills}</span>
+                                        <span style={{ color: "var(--text-dim)" }}>–</span>
+                                        <span style={{ color: p < 0.5 ? "var(--text-bright)" : "var(--text-dim)" }}>{bKills}</span>
+                                      </span>
+                                    );
+                                  })()}
                                   {hasGames && (
                                     <span className="font-mono" style={{ fontSize: "0.62rem", color: "var(--text-dim)", minWidth: 40 }}>
                                       <span style={{ color: "var(--win)" }}>{wins}W</span>–<span style={{ color: "var(--lose)" }}>{losses}L</span>
@@ -1268,6 +1317,24 @@ export default function Home() {
                       <div style={{ height: "100%", width: pct(pA), background: "var(--accent)", transition: "width 0.5s" }} />
                     </div>
                   </div>
+
+                  {/* Predicted score */}
+                  {state.games.length >= 2 && (() => {
+                    const { aKills, bKills } = predictScore(state, predA, predB, pA);
+                    const aWins = pA >= 0.5;
+                    return (
+                      <div style={{ textAlign: "center", marginBottom: 18, paddingBottom: 18, borderBottom: "1px solid var(--border)" }}>
+                        <div className="section-label" style={{ marginBottom: 8 }}>PREDICTED SCORE</div>
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 14 }}>
+                          <span className="player-name" style={{ color: aWins ? "var(--win)" : "var(--text-dim)", minWidth: 60, textAlign: "right" }}>{aName}</span>
+                          <span className="font-display" style={{ fontSize: "2.4rem", fontWeight: 700, letterSpacing: "0.04em", color: "var(--text-bright)", lineHeight: 1 }}>
+                            {aKills}<span style={{ color: "var(--text-dim)", margin: "0 6px", fontSize: "1.8rem" }}>–</span>{bKills}
+                          </span>
+                          <span className="player-name" style={{ color: !aWins ? "var(--win)" : "var(--text-dim)", minWidth: 60 }}>{bName}</span>
+                        </div>
+                      </div>
+                    );
+                  })()}
 
                   {/* Evidence breakdown */}
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 14 }}>
