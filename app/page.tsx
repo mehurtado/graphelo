@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import type { GraphState, Game, RankEntry, PairwisePrediction, PerGameStats, H2hSim } from "@/lib/graph-engine";
-import { simulateRoundRobin, predictPairwise, computeGlobalPathDist, computeElo, computePredictionAccuracy, computeEloHistory, computeMetaStability, computeReliability, computeEloVelocity } from "@/lib/graph-engine";
+import { simulateRoundRobin, predictPairwise, computeElo, computePredictionAccuracy, computeEloHistory, computeMetaStability, computeReliability, computeEloVelocity } from "@/lib/graph-engine";
 
 type Tab = "ranking" | "log" | "matchup" | "history" | "players";
 
@@ -25,31 +25,6 @@ const LIGHT_VARS: Record<string, string> = {
 
 const EMPTY_STATS = (): PerGameStats => ({ kills: 0, deaths: 0 });
 
-function PathDistChart({ dist, title }: { dist: Record<number, number>; title: string }) {
-  const maxLen = 5;
-  const entries = Array.from({ length: maxLen }, (_, i) => i + 1)
-    .map(len => ({ len, count: dist[len] ?? 0 }))
-    .filter(e => e.count > 0);
-  if (entries.length === 0) return null;
-  const max = Math.max(...entries.map(e => e.count));
-  const labels: Record<number, string> = { 1: "direct", 2: "2-hop", 3: "3-hop", 4: "4-hop", 5: "5-hop" };
-  return (
-    <div>
-      <div className="section-label" style={{ marginBottom: 8 }}>{title}</div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-        {entries.map(({ len, count }) => (
-          <div key={len} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span className="font-mono" style={{ fontSize: "0.6rem", color: "var(--text-dim)", width: 36 }}>{labels[len]}</span>
-            <div style={{ flex: 1, height: 7, background: "var(--surface2)", borderRadius: 1 }}>
-              <div style={{ width: `${Math.round((count / max) * 100)}%`, height: "100%", background: len === 1 ? "var(--accent)" : "var(--win)", borderRadius: 1, opacity: 1 - (len - 1) * 0.12 }} />
-            </div>
-            <span className="font-mono" style={{ fontSize: "0.6rem", color: "var(--text-dim)", width: 22, textAlign: "right" }}>{count}</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
 
 const PLAYER_COLORS = ["#f59e0b","#34d399","#f87171","#a78bfa","#38bdf8","#fb923c","#e879f9","#4ade80","#f472b6","#60a5fa"];
 
@@ -512,21 +487,14 @@ function wilsonCI(wins: number, total: number, z = 1.96): [number, number] {
 }
 
 // Epistemic CI: width reflects actual evidence quality, not MC sampling error.
-// Direct games → tight; long indirect paths → wide.
-function pathEvidenceCI(p: number, directGames: number, pathDist: Record<number, number>): [number, number] {
-  const minPathLen = directGames > 0 ? 1
-    : Object.keys(pathDist).length > 0
-      ? Math.min(...Object.keys(pathDist).map(Number))
-      : 6;
+// Direct games → tight; low Katz mass (purely indirect) → wide.
+function katzCI(p: number, directGames: number, evidenceMass: number): [number, number] {
   let hw: number;
   if (directGames >= 6) hw = 0.04;
   else if (directGames >= 3) hw = 0.05 + (6 - Math.min(6, directGames)) * 0.01;
   else if (directGames === 2) hw = 0.09;
   else if (directGames === 1) hw = 0.13;
-  else {
-    const indHW: Record<number, number> = { 2: 0.11, 3: 0.17, 4: 0.22, 5: 0.28 };
-    hw = indHW[Math.min(5, minPathLen)] ?? 0.28;
-  }
+  else hw = Math.max(0.14, 0.28 * Math.exp(-evidenceMass * 1.5));
   return [Math.max(0, p - hw), Math.min(1, p + hw)];
 }
 
@@ -642,7 +610,6 @@ export default function Home() {
   const [ranking, setRanking] = useState<RankEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [globalPathDist, setGlobalPathDist] = useState<Record<number, number>>({});
   const [elo, setElo] = useState<Record<string, number>>({});
   const [predAccuracy, setPredAccuracy] = useState<{ correct: number; total: number } | null>(null);
   const [eloHistory, setEloHistory] = useState<Record<string, Array<{ timestamp: number; elo: number }>>>({});
@@ -711,7 +678,6 @@ export default function Home() {
       const result = simulateRoundRobin(s);
       setRanking(result.ranking);
       setH2hSim(result.h2h_sim);
-      setGlobalPathDist(computeGlobalPathDist(s));
       setElo(computeElo(s));
       setEloHistory(computeEloHistory(s));
       setMetaStability(computeMetaStability(s));
@@ -912,7 +878,7 @@ export default function Home() {
         <div className="fade-in">
           <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
             <div className="section-label">ROUND ROBIN RANKING</div>
-            <span className="font-mono" style={{ fontSize: "0.6rem", color: "var(--text-dim)" }}>1000-TOURNAMENT MONTE CARLO · PATHS WEIGHTED 1/L · CHAMP RATE</span>
+            <span className="font-mono" style={{ fontSize: "0.6rem", color: "var(--text-dim)" }}>1000-TOURNAMENT MONTE CARLO · KATZ DIFFUSION β=0.5 · CHAMP RATE</span>
             {predAccuracy && predAccuracy.total >= 3 && (
               <span className="font-mono" style={{ fontSize: "0.6rem", color: predAccuracy.correct / predAccuracy.total > 0.65 ? "var(--win)" : "var(--text-dim)" }}>
                 MODEL {Math.round(predAccuracy.correct / predAccuracy.total * 100)}% ACC ({predAccuracy.correct}/{predAccuracy.total})
@@ -1160,12 +1126,6 @@ export default function Home() {
               })}
 
               {/* Path distribution */}
-              {Object.keys(globalPathDist).length > 0 && (
-                <div style={{ marginTop: 28, marginBottom: 28, maxWidth: 320 }}>
-                  <PathDistChart dist={globalPathDist} title="GRAPH PATH DISTRIBUTION (ALL MATCHUPS)" />
-                </div>
-              )}
-
               {Object.keys(eloHistory).some(id => eloHistory[id].length > 0) && (
                 <div style={{ marginTop: 28, marginBottom: 28 }}>
                   <EloChart history={eloHistory} players={state.players} />
@@ -1388,7 +1348,7 @@ export default function Home() {
             );
             const aWins = h2h.filter(g => g.winner_id === predA).length;
             const bWins = h2h.length - aWins;
-            const ciA = pathEvidenceCI(pA, prediction.direct_games, prediction.path_dist);
+            const ciA = katzCI(pA, prediction.direct_games, prediction.evidence_mass);
             const ciB: [number, number] = [1 - ciA[1], 1 - ciA[0]];
             return (
               <div className="fade-in">
@@ -1448,11 +1408,10 @@ export default function Home() {
                   })()}
 
                   {/* Evidence breakdown */}
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 14 }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, marginBottom: 14 }}>
                     {[
                       { label: "DIRECT GAMES", val: prediction.direct_games.toString() },
-                      { label: "GRAPH PATHS", val: prediction.paths_used.toString() },
-                      { label: "EVIDENCE", val: fmt(prediction.evidence_mass, 2) },
+                      { label: "KATZ MASS", val: fmt(prediction.evidence_mass, 3) },
                       { label: "CONFIDENCE", val: confLabel(prediction.confidence), color: confColor(prediction.confidence) },
                     ].map(({ label, val, color }) => (
                       <div key={label} style={{ padding: "8px 10px", border: "1px solid var(--border)" }}>
@@ -1461,26 +1420,29 @@ export default function Home() {
                       </div>
                     ))}
                   </div>
-                  <PathDistChart dist={prediction.path_dist} title="PATH LENGTH BREAKDOWN" />
-                  {prediction.top_paths.length > 0 && (
+                  {prediction.top_contributors.length > 0 && (
                     <div style={{ marginTop: 14 }}>
-                      <div className="section-label" style={{ marginBottom: 8 }}>DOMINANCE CHAINS</div>
+                      <div className="section-label" style={{ marginBottom: 8 }}>INFERRED VIA</div>
                       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                        {prediction.top_paths.map((path, idx) => (
-                          <div key={idx} style={{ display: "flex", alignItems: "center", gap: 5, flexWrap: "wrap" }}>
-                            <span className="font-mono" style={{ fontSize: "0.58rem", color: path.forward ? "var(--win)" : "var(--lose)", width: 34, flexShrink: 0 }}>
-                              {pct(path.implied_p, 0)}
-                            </span>
-                            {path.nodes.map((nodeId, ni) => (
-                              <span key={ni} style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                                {ni > 0 && <span className="font-mono" style={{ color: "var(--text-dim)", fontSize: "0.65rem" }}>→</span>}
-                                <span className="font-mono" style={{ fontSize: "0.72rem", color: nodeId === predA ? "var(--accent)" : nodeId === predB ? "var(--lose)" : "var(--text-bright)" }}>
-                                  {state.players[nodeId]?.display_name ?? nodeId}
+                        {(() => {
+                          const total = prediction.top_contributors.reduce((s, c) => s + c.mass, 0);
+                          return prediction.top_contributors.map(({ playerId, mass }) => {
+                            const mName = state.players[playerId]?.display_name ?? playerId;
+                            return (
+                              <div key={playerId} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                <span className="font-mono" style={{ fontSize: "0.62rem", color: "var(--text-dim)", minWidth: 120 }}>
+                                  {aName} → {mName} → {bName}
                                 </span>
-                              </span>
-                            ))}
-                          </div>
-                        ))}
+                                <div style={{ flex: 1, height: 5, background: "var(--surface2)", borderRadius: 2, overflow: "hidden" }}>
+                                  <div style={{ height: "100%", width: `${total > 0 ? Math.round((mass / total) * 100) : 0}%`, background: "var(--accent)", borderRadius: 2 }} />
+                                </div>
+                                <span className="font-mono" style={{ fontSize: "0.58rem", color: "var(--text-dim)", minWidth: 32, textAlign: "right" }}>
+                                  {(mass * 100).toFixed(1)}
+                                </span>
+                              </div>
+                            );
+                          });
+                        })()}
                       </div>
                     </div>
                   )}
@@ -1491,9 +1453,9 @@ export default function Home() {
                       <span style={{ color: "var(--border2)" }}>·</span>
                       {h2h.length > 0
                         ? <span>direct {aWins}W–{bWins}L</span>
-                        : Object.keys(prediction.path_dist).length > 0
-                          ? <span>CI from {Math.min(...Object.keys(prediction.path_dist).map(Number))}-hop paths</span>
-                          : <span>no graph paths</span>}
+                        : prediction.evidence_mass > 0
+                          ? <span>katz ↑{fmt(prediction.katz_ab, 3)} ↓{fmt(prediction.katz_ba, 3)}</span>
+                          : <span>no graph evidence</span>}
                       <span style={{ color: "var(--border2)" }}>·</span>
                       <span>model prior: {pct(prior, 1)}</span>
                       {priorDelta > 0.005 && (
@@ -1755,7 +1717,7 @@ export default function Home() {
 
       <div style={{ marginTop: 36, paddingTop: 14, borderTop: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: 8 }}>
         <div className="font-mono" style={{ fontSize: "0.58rem", color: "var(--text-dim)", letterSpacing: "0.1em" }}>
-          GRAPHELO v2 · GRAPH PATH WEIGHTS 1/L · τ=90d · 1000-TOURNAMENT MONTE CARLO
+          GRAPHELO v3 · KATZ GRAPH DIFFUSION β=0.5 · τ=90d · 1000-TOURNAMENT MONTE CARLO
         </div>
         <a href="https://eloboard.vercel.app/" target="_blank" rel="noopener noreferrer"
           className="font-mono" style={{ fontSize: "0.58rem", color: "var(--accent)", letterSpacing: "0.1em", textDecoration: "none", opacity: 0.8 }}>

@@ -36,10 +36,10 @@ export interface PairwisePrediction {
   p_a_wins: number;
   confidence: number;
   direct_games: number;
-  paths_used: number;
-  evidence_mass: number;
-  path_dist: Record<number, number>;
-  top_paths: Array<{ nodes: string[]; implied_p: number; forward: boolean }>;
+  evidence_mass: number;       // katz_ab + katz_ba
+  katz_ab: number;             // K[A][B]
+  katz_ba: number;             // K[B][A]
+  top_contributors: Array<{ playerId: string; mass: number }>;
 }
 
 export interface RankEntry {
@@ -65,15 +65,10 @@ export interface SimulationResult {
 
 const TAU_DAYS = 90;
 const SIM_ROUNDS = 1000;
-const L_MAX = 5;
+const BETA = 0.5;
 const STAT_PRIOR_WEIGHT = 0.3;
-const DIRECT_MULTIPLIER = 2;
 
-// ─── Graph Primitives ─────────────────────────────────────────────────────────
-
-interface EdgeMap {
-  [winnerId: string]: { [loserId: string]: number[] };
-}
+// ─── Utilities ────────────────────────────────────────────────────────────────
 
 function decayWeight(timestamp: number): number {
   return Math.exp(-(Date.now() - timestamp) / (TAU_DAYS * 86_400_000));
@@ -81,76 +76,6 @@ function decayWeight(timestamp: number): number {
 
 function sigmoid(x: number): number {
   return 1 / (1 + Math.exp(-x));
-}
-
-function buildEdgeMap(games: Game[]): EdgeMap {
-  const adj: EdgeMap = {};
-  for (const g of games) {
-    const w = decayWeight(g.timestamp);
-    adj[g.winner_id] ??= {};
-    adj[g.winner_id][g.loser_id] ??= [];
-    adj[g.winner_id][g.loser_id].push(w);
-  }
-  return adj;
-}
-
-function totalMass(adj: EdgeMap, from: string, to: string): number {
-  return (adj[from]?.[to] ?? []).reduce((s, w) => s + w, 0);
-}
-
-function directP(adj: EdgeMap, a: string, b: string): { p: number; mass: number } | null {
-  const aWins = totalMass(adj, a, b);
-  const bWins = totalMass(adj, b, a);
-  const total = aWins + bWins;
-  if (total === 0) return null;
-  return { p: aWins / total, mass: total };
-}
-
-// ─── Path Traversal ───────────────────────────────────────────────────────────
-
-interface PathContrib {
-  implied_p: number;
-  path_weight: number;
-  evidence: number;
-  nodes: string[];
-}
-
-function findPaths(adj: EdgeMap, src: string, dst: string): PathContrib[] {
-  const results: PathContrib[] = [];
-
-  function dfs(
-    current: string,
-    visited: Set<string>,
-    depth: number,
-    runningP: number,
-    runningE: number,
-    path: string[],
-  ) {
-    if (depth > L_MAX) return;
-    for (const next of Object.keys(adj[current] ?? {})) {
-      if (visited.has(next)) continue;
-      const mass = totalMass(adj, current, next);
-      if (mass === 0) continue;
-      const pEdge = mass / (mass + totalMass(adj, next, current));
-      if (next === dst) {
-        if (depth > 0) {
-          results.push({
-            implied_p: runningP * pEdge,
-            path_weight: 1 / (depth + 1),
-            evidence: runningE * mass,
-            nodes: [...path, current, next],
-          });
-        }
-      } else {
-        visited.add(next);
-        dfs(next, visited, depth + 1, runningP * pEdge, runningE * mass, [...path, current]);
-        visited.delete(next);
-      }
-    }
-  }
-
-  dfs(src, new Set([src]), 0, 1.0, 1.0, []);
-  return results;
 }
 
 // ─── Stat Vector ──────────────────────────────────────────────────────────────
@@ -186,89 +111,137 @@ function statPrior(a: StatVector, b: StatVector): number {
   return sigmoid(logit);
 }
 
-// ─── Prediction Core ──────────────────────────────────────────────────────────
+// ─── Matrix Inversion (Gauss-Jordan, partial pivoting) ────────────────────────
 
-function predictInternal(
-  adj: EdgeMap,
-  statA: StatVector,
-  statB: StatVector,
+function invertMatrix(A: number[][]): number[][] {
+  const n = A.length;
+  const M = A.map((row, i) =>
+    [...row, ...Array.from({ length: n }, (_, j) => (i === j ? 1 : 0))]
+  );
+  for (let col = 0; col < n; col++) {
+    let maxRow = col;
+    for (let row = col + 1; row < n; row++) {
+      if (Math.abs(M[row][col]) > Math.abs(M[maxRow][col])) maxRow = row;
+    }
+    [M[col], M[maxRow]] = [M[maxRow], M[col]];
+    const pivot = M[col][col];
+    if (Math.abs(pivot) < 1e-12) {
+      // Singular — return identity
+      return Array.from({ length: n }, (_, i) =>
+        Array.from({ length: n }, (_, j) => (i === j ? 1 : 0))
+      );
+    }
+    for (let j = col; j < 2 * n; j++) M[col][j] /= pivot;
+    for (let row = 0; row < n; row++) {
+      if (row === col) continue;
+      const factor = M[row][col];
+      for (let j = col; j < 2 * n; j++) M[row][j] -= factor * M[col][j];
+    }
+  }
+  return M.map(row => row.slice(n));
+}
+
+// ─── Katz Graph Diffusion ─────────────────────────────────────────────────────
+// K = (I − βP)^{−1} − I, where P is row-stochastic win matrix.
+// K[i][j] = sum of all walks from i to j, each weighted by β^(walk length).
+
+interface KatzResult {
+  K: number[][];
+  P: number[][];
+  ids: string[];
+  idx: Record<string, number>;
+}
+
+function buildKatzMatrix(state: GraphState): KatzResult {
+  const ids = Object.keys(state.players);
+  const n = ids.length;
+  const idx: Record<string, number> = {};
+  ids.forEach((id, i) => { idx[id] = i; });
+
+  if (n === 0) return { K: [], P: [], ids, idx };
+
+  const statVecs: StatVector[] = ids.map(id => computeStatVector(id, state.games));
+
+  // W[i][j] = stat prior + decayed observed wins of i over j
+  const W: number[][] = Array.from({ length: n }, (_, i) =>
+    Array.from({ length: n }, (_, j) =>
+      i === j ? 0 : STAT_PRIOR_WEIGHT * statPrior(statVecs[i], statVecs[j])
+    )
+  );
+  for (const g of state.games) {
+    const wi = idx[g.winner_id], li = idx[g.loser_id];
+    if (wi === undefined || li === undefined) continue;
+    W[wi][li] += decayWeight(g.timestamp);
+  }
+
+  // Row-normalize → stochastic P
+  const P: number[][] = Array.from({ length: n }, () => new Array(n).fill(0));
+  for (let i = 0; i < n; i++) {
+    const rowSum = W[i].reduce((s, v) => s + v, 0);
+    if (rowSum > 0) for (let j = 0; j < n; j++) P[i][j] = W[i][j] / rowSum;
+  }
+
+  // Build (I − β·P) and invert
+  const IminusBP: number[][] = Array.from({ length: n }, (_, i) =>
+    Array.from({ length: n }, (_, j) => (i === j ? 1 : 0) - BETA * P[i][j])
+  );
+  const inv = invertMatrix(IminusBP);
+
+  // K = inv − I
+  const K: number[][] = inv.map((row, i) =>
+    row.map((v, j) => v - (i === j ? 1 : 0))
+  );
+
+  return { K, P, ids, idx };
+}
+
+function katzPredict(
+  { K, P, ids, idx }: KatzResult,
   aId: string,
   bId: string,
+  directGames: number,
 ): PairwisePrediction {
-  const direct = directP(adj, aId, bId);
-  const directGames = (adj[aId]?.[bId]?.length ?? 0) + (adj[bId]?.[aId]?.length ?? 0);
-  const forwardPaths = findPaths(adj, aId, bId);
-  const reversePaths = findPaths(adj, bId, aId);
-  const prior = statPrior(statA, statB);
-
-  let totalWeight = STAT_PRIOR_WEIGHT;
-  let weightedP = prior * STAT_PRIOR_WEIGHT;
-
-  if (direct) {
-    totalWeight += direct.mass * DIRECT_MULTIPLIER;
-    weightedP += direct.p * direct.mass * DIRECT_MULTIPLIER;
-  }
-  for (const path of forwardPaths) {
-    const w = path.evidence * path.path_weight;
-    totalWeight += w;
-    weightedP += path.implied_p * w;
-  }
-  for (const path of reversePaths) {
-    const w = path.evidence * path.path_weight;
-    totalWeight += w;
-    weightedP += (1 - path.implied_p) * w;
+  const ai = idx[aId], bi = idx[bId];
+  if (ai === undefined || bi === undefined) {
+    return { p_a_wins: 0.5, confidence: 0, direct_games: 0, evidence_mass: 0, katz_ab: 0, katz_ba: 0, top_contributors: [] };
   }
 
-  // Shrink probability toward 0.5 based on minimum path length.
-  // Transitive inferences through long chains are less reliable than direct evidence.
-  let minPathLen = direct ? 1 : Infinity;
-  for (const path of [...forwardPaths, ...reversePaths]) {
-    const len = Math.round(1 / path.path_weight);
-    if (len < minPathLen) minPathLen = len;
-  }
-  if (!isFinite(minPathLen)) minPathLen = 5;
-  const SHRINK: Record<number, number> = { 1: 1.0, 2: 0.85, 3: 0.65, 4: 0.45, 5: 0.30 };
-  const shrink = SHRINK[Math.min(5, minPathLen)] ?? 0.30;
-  const p_raw = Math.max(0.02, Math.min(0.98, weightedP / totalWeight));
-  const p_a_wins = 0.5 + (p_raw - 0.5) * shrink;
-  const graphMass = totalWeight - STAT_PRIOR_WEIGHT;
-  const path_dist: Record<number, number> = {};
-  if (direct) path_dist[1] = 1;
-  for (const path of [...forwardPaths, ...reversePaths]) {
-    const len = Math.round(1 / path.path_weight);
-    path_dist[len] = (path_dist[len] ?? 0) + 1;
-  }
+  const katz_ab = Math.max(0, K[ai][bi]);
+  const katz_ba = Math.max(0, K[bi][ai]);
+  const evidence_mass = katz_ab + katz_ba;
+  const p_a_wins = Math.max(0.02, Math.min(0.98, evidence_mass > 0 ? katz_ab / evidence_mass : 0.5));
+  const confidence = Math.max(0, Math.min(1, 1 - Math.exp(-evidence_mass * 0.8)));
 
-  const top_paths = [
-    ...forwardPaths.map(p => ({ nodes: p.nodes, implied_p: p.implied_p,       forward: true,  score: p.evidence * p.path_weight })),
-    ...reversePaths.map(p => ({ nodes: p.nodes, implied_p: 1 - p.implied_p,   forward: false, score: p.evidence * p.path_weight })),
-  ].sort((a, b) => b.score - a.score).slice(0, 4).map(({ nodes, implied_p, forward }) => ({ nodes, implied_p, forward }));
-
-  const totalPaths = (direct ? 1 : 0) + forwardPaths.length + reversePaths.length;
-  const confidence = 1 - Math.exp(-0.15 * graphMass * Math.sqrt(1 + totalPaths));
+  // Top-2 contributors via 2-hop K mass: β² × P[A→m] × P[m→B]
+  const n = ids.length;
+  const contributors: Array<{ playerId: string; mass: number }> = [];
+  for (let m = 0; m < n; m++) {
+    if (m === ai || m === bi) continue;
+    const mass = BETA * BETA * P[ai][m] * P[m][bi];
+    if (mass > 0) contributors.push({ playerId: ids[m], mass });
+  }
+  contributors.sort((a, b) => b.mass - a.mass);
 
   return {
     p_a_wins,
-    confidence: Math.max(0, Math.min(1, confidence)),
+    confidence,
     direct_games: directGames,
-    paths_used: totalPaths,
-    evidence_mass: totalWeight,
-    path_dist,
-    top_paths,
+    evidence_mass,
+    katz_ab,
+    katz_ba,
+    top_contributors: contributors.slice(0, 2),
   };
 }
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 export function predictPairwise(state: GraphState, aId: string, bId: string): PairwisePrediction {
-  const adj = buildEdgeMap(state.games);
-  return predictInternal(
-    adj,
-    computeStatVector(aId, state.games),
-    computeStatVector(bId, state.games),
-    aId,
-    bId,
-  );
+  const katz = buildKatzMatrix(state);
+  const directGames = state.games.filter(g =>
+    (g.winner_id === aId && g.loser_id === bId) ||
+    (g.winner_id === bId && g.loser_id === aId)
+  ).length;
+  return katzPredict(katz, aId, bId, directGames);
 }
 
 // ─── Reverse PageRank ─────────────────────────────────────────────────────────
@@ -293,7 +266,6 @@ export function computePageRank(state: GraphState, d = 0.85): Record<string, num
   }
 
   // lossWeight[i] = total decayed weight of all losses player i has suffered
-  // = Σ_j W[j][i]
   const lossWeight = new Array(n).fill(0);
   for (let j = 0; j < n; j++)
     for (let i = 0; i < n; i++)
@@ -301,14 +273,12 @@ export function computePageRank(state: GraphState, d = 0.85): Record<string, num
 
   // Power iteration
   // Transition: from i, go to j with prob W[j][i] / lossWeight[i]
-  // (follow who-beat-me edges; authority accumulates at players who beat many)
   let pr = new Array(n).fill(1 / n);
   for (let iter = 0; iter < 300; iter++) {
     const next = new Array(n).fill((1 - d) / n);
     for (let i = 0; i < n; i++) {
       const lw = lossWeight[i];
       if (lw === 0) {
-        // Never lost — distribute mass uniformly (dangling node)
         for (let j = 0; j < n; j++) next[j] += d * pr[i] / n;
       } else {
         for (let j = 0; j < n; j++) {
@@ -363,7 +333,6 @@ export function computeEloVelocity(
 ): { slope: number; ewma: number } | null {
   if (history.length < 2) return null;
 
-  // Linear regression on last 5 points
   const recent = history.slice(-5);
   const m = recent.length;
   const ys = recent.map(p => p.elo);
@@ -373,7 +342,6 @@ export function computeEloVelocity(
   const den = ys.reduce((s, _, i) => s + (i - xMean) ** 2, 0);
   const slope = den > 0 ? num / den : 0;
 
-  // EWMA of per-game deltas
   const lambda = 0.3;
   let ewma = history[1].elo - history[0].elo;
   for (let i = 2; i < history.length; i++) {
@@ -390,11 +358,12 @@ export function simulateRoundRobin(state: GraphState): SimulationResult {
   if (players.length === 0) return { ranking: [], h2h_sim: {} };
   const n = players.length;
 
-  const adj = buildEdgeMap(state.games);
+  // Build Katz matrix once for all pairs
+  const katz = buildKatzMatrix(state);
+
   const statVecs: Record<string, StatVector> = {};
   for (const p of players) statVecs[p.id] = computeStatVector(p.id, state.games);
 
-  // Build probability and matchup tables once
   const pMatrix: Record<string, Record<string, number>> = {};
   const matchupTable: Record<string, Record<string, number>> = {};
   for (const a of players) {
@@ -402,7 +371,7 @@ export function simulateRoundRobin(state: GraphState): SimulationResult {
     matchupTable[a.id] = {};
     for (const b of players) {
       if (a.id === b.id) continue;
-      const { p_a_wins } = predictInternal(adj, statVecs[a.id], statVecs[b.id], a.id, b.id);
+      const { p_a_wins } = katzPredict(katz, a.id, b.id, 0);
       pMatrix[a.id][b.id] = p_a_wins;
       matchupTable[a.id][b.id] = p_a_wins;
     }
@@ -436,17 +405,14 @@ export function simulateRoundRobin(state: GraphState): SimulationResult {
       }
     }
 
-    // Record placements (sort descending by wins; ties broken arbitrarily)
     const sorted = [...players].sort((a, b) => wins[b.id] - wins[a.id]);
     sorted.forEach((p, rank) => { placementCounts[p.id][rank]++; });
 
-    // Sole champion only
     const maxWins = Math.max(...players.map(p => wins[p.id]));
     const leaders = players.filter(p => wins[p.id] === maxWins);
     if (leaders.length === 1) champCount[leaders[0].id]++;
   }
 
-  // Median placement for sort key
   const medianRank = (dist: number[]) => {
     let cum = 0;
     for (let i = 0; i < dist.length; i++) {
@@ -460,14 +426,14 @@ export function simulateRoundRobin(state: GraphState): SimulationResult {
 
   const ranking: RankEntry[] = players
     .map(p => ({
-      player_id:        p.id,
-      display_name:     p.display_name,
-      tournament_wins:  champCount[p.id],
+      player_id:          p.id,
+      display_name:       p.display_name,
+      tournament_wins:    champCount[p.id],
       tournament_win_pct: champCount[p.id] / SIM_ROUNDS,
-      placement_dist:   placementCounts[p.id],
-      stat_vec:         statVecs[p.id],
-      matchup_table:    matchupTable[p.id],
-      page_rank:        pageRank[p.id] ?? 0,
+      placement_dist:     placementCounts[p.id],
+      stat_vec:           statVecs[p.id],
+      matchup_table:      matchupTable[p.id],
+      page_rank:          pageRank[p.id] ?? 0,
     }))
     .sort((a, b) =>
       b.tournament_win_pct - a.tournament_win_pct ||
@@ -519,24 +485,6 @@ export function computePredictionAccuracy(state: GraphState): { correct: number;
     total++;
   }
   return { correct, total };
-}
-
-export function computeGlobalPathDist(state: GraphState): Record<number, number> {
-  const players = Object.values(state.players);
-  if (players.length < 2) return {};
-  const adj = buildEdgeMap(state.games);
-  const dist: Record<number, number> = {};
-  for (let i = 0; i < players.length; i++) {
-    for (let j = i + 1; j < players.length; j++) {
-      const a = players[i], b = players[j];
-      if (directP(adj, a.id, b.id)) dist[1] = (dist[1] ?? 0) + 1;
-      for (const path of [...findPaths(adj, a.id, b.id), ...findPaths(adj, b.id, a.id)]) {
-        const len = Math.round(1 / path.path_weight);
-        dist[len] = (dist[len] ?? 0) + 1;
-      }
-    }
-  }
-  return dist;
 }
 
 export function headToHead(state: GraphState, aId: string, bId: string) {
