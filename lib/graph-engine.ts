@@ -66,7 +66,12 @@ export interface SimulationResult {
 const TAU_DAYS = 90;
 const SIM_ROUNDS = 1000;
 const BETA = 0.5;
-const STAT_PRIOR_WEIGHT = 0.3;
+
+// Adaptive stat prior — decays toward PRIOR_W_MIN as game data accumulates.
+// PRIOR_HALF_LIFE: avg games at which prior weight halves (lower = trust data faster).
+const PRIOR_W_MAX = 0.30;
+const PRIOR_W_MIN = 0.05;
+const PRIOR_HALF_LIFE = 4;
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
 
@@ -102,6 +107,11 @@ export function computeStatVector(playerId: string, games: Game[]): StatVector {
 }
 
 // ─── Stat-Based Prior ─────────────────────────────────────────────────────────
+
+function statPriorWeight(nA: number, nB: number): number {
+  const n = (nA + nB) / 2;
+  return PRIOR_W_MIN + (PRIOR_W_MAX - PRIOR_W_MIN) * Math.exp(-n / PRIOR_HALF_LIFE);
+}
 
 function statPrior(a: StatVector, b: StatVector): number {
   const logit =
@@ -162,10 +172,10 @@ function buildKatzMatrix(state: GraphState): KatzResult {
 
   const statVecs: StatVector[] = ids.map(id => computeStatVector(id, state.games));
 
-  // W[i][j] = stat prior + decayed observed wins of i over j
+  // W[i][j] = adaptive stat prior + decayed observed wins of i over j
   const W: number[][] = Array.from({ length: n }, (_, i) =>
     Array.from({ length: n }, (_, j) =>
-      i === j ? 0 : STAT_PRIOR_WEIGHT * statPrior(statVecs[i], statVecs[j])
+      i === j ? 0 : statPriorWeight(statVecs[i].games_played, statVecs[j].games_played) * statPrior(statVecs[i], statVecs[j])
     )
   );
   for (const g of state.games) {
