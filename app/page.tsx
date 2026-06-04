@@ -1376,8 +1376,12 @@ export default function Home() {
           {prediction && (() => {
             const aName = state.players[predA]?.display_name ?? "A";
             const bName = state.players[predB]?.display_name ?? "B";
-            const pA = prediction.p_a_wins;
+            const simWins = h2hSim[predA]?.[predB];
+            const pA = simWins !== undefined ? simWins / 1000 : prediction.p_a_wins;
             const pB = 1 - pA;
+            const prior = prediction.p_a_wins;
+            const priorDelta = Math.abs(pA - prior);
+            if (priorDelta > 0.05) console.warn(`[GraphELO] MC/prior delta ${(priorDelta * 100).toFixed(1)}% — path weights diverging from simulation for this matchup.`);
             const h2h = state.games.filter(
               g => (g.winner_id === predA && g.loser_id === predB) ||
                    (g.winner_id === predB && g.loser_id === predA)
@@ -1480,20 +1484,26 @@ export default function Home() {
                       </div>
                     </div>
                   )}
-                  {/* Compact sim metadata */}
-                  {(() => {
-                    const simWins = h2hSim[predA]?.[predB] ?? 0;
-                    return (
-                      <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px solid var(--border)" }}>
-                        <span className="font-mono" style={{ fontSize: "0.6rem", color: "var(--text-dim)" }}>
-                          {simWins}/1000 sim runs
-                          {h2h.length > 0
-                            ? ` · direct record ${aWins}W–${bWins}L`
-                            : ` · no direct games — CI from ${Math.min(...Object.keys(prediction.path_dist).map(Number).filter(k => k > 0), 5)}-hop paths`}
-                        </span>
-                      </div>
-                    );
-                  })()}
+                  {/* Compact sim metadata — model prior shown as diagnostic input, not headline */}
+                  <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px solid var(--border)" }}>
+                    <div className="font-mono" style={{ fontSize: "0.6rem", color: "var(--text-dim)", display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+                      <span>{simWins !== undefined ? `${simWins}/1000 runs` : "no sim data"}</span>
+                      <span style={{ color: "var(--border2)" }}>·</span>
+                      {h2h.length > 0
+                        ? <span>direct {aWins}W–{bWins}L</span>
+                        : Object.keys(prediction.path_dist).length > 0
+                          ? <span>CI from {Math.min(...Object.keys(prediction.path_dist).map(Number))}-hop paths</span>
+                          : <span>no graph paths</span>}
+                      <span style={{ color: "var(--border2)" }}>·</span>
+                      <span>model prior: {pct(prior, 1)}</span>
+                      {priorDelta > 0.005 && (
+                        <>
+                          <span style={{ color: "var(--border2)" }}>·</span>
+                          <span style={{ color: priorDelta > 0.05 ? "var(--neutral)" : undefined }}>Δ {pct(priorDelta, 1)}</span>
+                        </>
+                      )}
+                    </div>
+                  </div>
                 </div>
               </div>
             );
