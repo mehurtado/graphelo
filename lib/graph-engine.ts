@@ -34,6 +34,11 @@ export interface StatVector {
   games_played: number;
 }
 
+export interface DominancePath {
+  path: string[];              // player IDs from source to target (inclusive, ≥3 nodes = ≥1 intermediary)
+  weight: number;              // average Katz value per hop
+}
+
 export interface PairwisePrediction {
   p_a_wins: number;
   confidence: number;
@@ -41,8 +46,8 @@ export interface PairwisePrediction {
   evidence_mass: number;       // katz_ab + katz_ba
   katz_ab: number;             // K[A][B]
   katz_ba: number;             // K[B][A]
-  top_contributors: Array<{ playerId: string; mass: number }>;
-  no_real_paths: boolean;      // true when contributors are stat-prior only (no observed game edges)
+  dominance_paths: DominancePath[];
+  no_real_paths: boolean;      // true when no direct games AND no observed transitive paths
 }
 
 export interface RankEntry {
@@ -301,15 +306,47 @@ function buildKatzMatrix(state: GraphState): KatzResult {
   return { K, P, ids, idx, observedEdge };
 }
 
+function findObservedPaths(
+  source: number,
+  target: number,
+  observedEdge: boolean[][],
+  n: number,
+  maxHops = 4,
+): number[][] {
+  const results: number[][] = [];
+  const visited = new Array(n).fill(false);
+  visited[source] = true;
+
+  function dfs(current: number, path: number[]) {
+    if (path.length > maxHops + 1) return;
+    if (current === target && path.length >= 3) {
+      results.push([...path]);
+      return;
+    }
+    for (let next = 0; next < n; next++) {
+      if (visited[next]) continue;
+      if (!observedEdge[current][next]) continue;
+      visited[next] = true;
+      path.push(next);
+      dfs(next, path);
+      path.pop();
+      visited[next] = false;
+    }
+  }
+
+  dfs(source, [source]);
+  return results;
+}
+
 function katzPredict(
-  { K, P, ids, idx, observedEdge }: KatzResult,
+  { K, ids, idx, observedEdge }: KatzResult,
   aId: string,
   bId: string,
   directGames: number,
 ): PairwisePrediction {
   const ai = idx[aId], bi = idx[bId];
   if (ai === undefined || bi === undefined) {
-    return { p_a_wins: 0.5, confidence: 0, direct_games: 0, evidence_mass: 0, katz_ab: 0, katz_ba: 0, top_contributors: [], no_real_paths: true };
+    return { p_a_wins: 0.5, confidence: 0, direct_games: 0, evidence_mass: 0, katz_ab: 0, katz_ba: 0, dominance_paths: [], no_real_paths: true };
   }
 
   const katz_ab = Math.max(0, K[ai][bi]);
@@ -318,19 +355,19 @@ function katzPredict(
   const p_a_wins = Math.max(0.02, Math.min(0.98, evidence_mass > 0 ? katz_ab / evidence_mass : 0.5));
   const confidence = Math.max(0, Math.min(1, 1 - Math.exp(-evidence_mass * 0.8)));
 
-  // Contributors: only traverse real observed edges (A→m AND m→B must both exist in game history)
+  // DFS over real observed edges to find transitive paths (≥1 intermediary, up to 4 hops)
   const n = ids.length;
-  const contributors: Array<{ playerId: string; mass: number }> = [];
-  for (let m = 0; m < n; m++) {
-    if (m === ai || m === bi) continue;
-    if (!observedEdge[ai][m] || !observedEdge[m][bi]) continue;
-    const mass = BETA * BETA * P[ai][m] * P[m][bi];
-    if (mass > 0) contributors.push({ playerId: ids[m], mass });
-  }
-  contributors.sort((a, b) => b.mass - a.mass);
+  const rawPaths = findObservedPaths(ai, bi, observedEdge, n, 4);
+  const dominance_paths: DominancePath[] = rawPaths
+    .map(path => {
+      let w = 0;
+      for (let i = 0; i < path.length - 1; i++) w += Math.max(0, K[path[i]][path[i + 1]]);
+      return { path: path.map(i => ids[i]), weight: w / (path.length - 1) };
+    })
+    .sort((a, b) => b.weight - a.weight)
+    .slice(0, 3);
 
-  // no_real_paths: no observed 2-hop paths AND no direct games
-  const no_real_paths = directGames === 0 && contributors.length === 0;
+  const no_real_paths = directGames === 0 && dominance_paths.length === 0;
 
   return {
     p_a_wins,
@@ -339,7 +376,7 @@ function katzPredict(
     evidence_mass,
     katz_ab,
     katz_ba,
-    top_contributors: contributors.slice(0, 2),
+    dominance_paths,
     no_real_paths,
   };
 }

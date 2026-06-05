@@ -1,6 +1,6 @@
 ﻿"use client";
 import { useState, useEffect, useCallback, useMemo } from "react";
-import type { GraphState, Game, RankEntry, PairwisePrediction, PerGameStats, H2hSim, BTResult, CycleAnalysis, LooCvResult, SkillGapTrend } from "@/lib/graph-engine";
+import type { GraphState, Game, RankEntry, PairwisePrediction, PerGameStats, H2hSim, BTResult, CycleAnalysis, LooCvResult, SkillGapTrend, DominancePath } from "@/lib/graph-engine";
 import { simulateRoundRobin, predictPairwise, computeElo, computePredictionAccuracy, computeEloHistory, computeMetaStability, computeReliability, computeEloVelocity, computeBradleyTerry, computeCycles, computeCeilingEstimate, computeNemesisProfile, computeParityIndex, computeFormRating, computeLooCvBrier, computeSkillGapTrend, computeRematchUrgency, computeUpsetAlert, kendallTauAgreement } from "@/lib/graph-engine";
 
 type Tab = "ranking" | "log" | "matchup" | "history" | "players" | "system";
@@ -1600,22 +1600,22 @@ export default function Home() {
                           Prediction is based on stat prior only (KD, win rate).
                         </div>
                       </div>
-                    ) : prediction.top_contributors.length > 0 ? (
+                    ) : prediction.dominance_paths.length > 0 ? (
                       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                         {(() => {
-                          const total = prediction.top_contributors.reduce((s, c) => s + c.mass, 0);
-                          return prediction.top_contributors.map(({ playerId, mass }) => {
-                            const mName = state.players[playerId]?.display_name ?? playerId;
+                          const maxW = Math.max(...prediction.dominance_paths.map((dp: DominancePath) => dp.weight), 0.001);
+                          return prediction.dominance_paths.map((dp: DominancePath, idx: number) => {
+                            const label = dp.path.map((id: string) => state.players[id]?.display_name ?? id).join(" → ");
                             return (
-                              <div key={playerId} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                                <span className="font-mono" style={{ fontSize: "0.82rem", color: "var(--text-dim)", minWidth: 120 }}>
-                                  {aName} → {mName} → {bName}
+                              <div key={idx} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                <span className="font-mono" style={{ fontSize: "0.78rem", color: "var(--text-dim)", flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                  {label}
                                 </span>
-                                <div style={{ flex: 1, height: 5, background: "var(--surface2)", borderRadius: 2, overflow: "hidden" }}>
-                                  <div style={{ height: "100%", width: `${total > 0 ? Math.round((mass / total) * 100) : 0}%`, background: "var(--accent)", borderRadius: 2 }} />
+                                <div style={{ width: 60, height: 5, background: "var(--surface2)", borderRadius: 2, overflow: "hidden", flexShrink: 0 }}>
+                                  <div style={{ height: "100%", width: `${Math.round((dp.weight / maxW) * 100)}%`, background: "var(--accent)", borderRadius: 2 }} />
                                 </div>
-                                <span className="font-mono" style={{ fontSize: "0.78rem", color: "var(--text-dim)", minWidth: 32, textAlign: "right" }}>
-                                  {(mass * 100).toFixed(1)}
+                                <span className="font-mono" style={{ fontSize: "0.78rem", color: "var(--text-dim)", minWidth: 36, textAlign: "right", flexShrink: 0 }}>
+                                  {dp.weight.toFixed(2)}
                                 </span>
                               </div>
                             );
