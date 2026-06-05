@@ -42,6 +42,7 @@ export interface PairwisePrediction {
   katz_ab: number;             // K[A][B]
   katz_ba: number;             // K[B][A]
   top_contributors: Array<{ playerId: string; mass: number }>;
+  no_real_paths: boolean;      // true when contributors are stat-prior only (no observed game edges)
 }
 
 export interface RankEntry {
@@ -245,6 +246,9 @@ interface KatzResult {
   P: number[][];
   ids: string[];
   idx: Record<string, number>;
+  // Topology from real games only — never includes stat prior.
+  // observedEdge[i][j] = true iff player i has net wins over player j.
+  observedEdge: boolean[][];
 }
 
 function buildKatzMatrix(state: GraphState): KatzResult {
@@ -253,7 +257,7 @@ function buildKatzMatrix(state: GraphState): KatzResult {
   const idx: Record<string, number> = {};
   ids.forEach((id, i) => { idx[id] = i; });
 
-  if (n === 0) return { K: [], P: [], ids, idx };
+  if (n === 0) return { K: [], P: [], ids, idx, observedEdge: [] };
 
   const statVecs: StatVector[] = ids.map(id => computeStatVector(id, state.games));
 
@@ -263,11 +267,18 @@ function buildKatzMatrix(state: GraphState): KatzResult {
       i === j ? 0 : statPriorWeight(statVecs[i].games_played, statVecs[j].games_played) * statPrior(statVecs[i], statVecs[j])
     )
   );
+
+  // Build observed-edge topology strictly from game history (separate from W)
+  const netWins: number[][] = Array.from({ length: n }, () => new Array(n).fill(0));
   for (const g of state.games) {
     const wi = idx[g.winner_id], li = idx[g.loser_id];
     if (wi === undefined || li === undefined) continue;
     W[wi][li] += decayWeight(g.timestamp);
+    netWins[wi][li]++;
   }
+  const observedEdge: boolean[][] = Array.from({ length: n }, (_, i) =>
+    Array.from({ length: n }, (_, j) => netWins[i][j] > netWins[j][i])
+  );
 
   // Row-normalize → stochastic P
   const P: number[][] = Array.from({ length: n }, () => new Array(n).fill(0));
@@ -287,18 +298,18 @@ function buildKatzMatrix(state: GraphState): KatzResult {
     row.map((v, j) => v - (i === j ? 1 : 0))
   );
 
-  return { K, P, ids, idx };
+  return { K, P, ids, idx, observedEdge };
 }
 
 function katzPredict(
-  { K, P, ids, idx }: KatzResult,
+  { K, P, ids, idx, observedEdge }: KatzResult,
   aId: string,
   bId: string,
   directGames: number,
 ): PairwisePrediction {
   const ai = idx[aId], bi = idx[bId];
   if (ai === undefined || bi === undefined) {
-    return { p_a_wins: 0.5, confidence: 0, direct_games: 0, evidence_mass: 0, katz_ab: 0, katz_ba: 0, top_contributors: [] };
+    return { p_a_wins: 0.5, confidence: 0, direct_games: 0, evidence_mass: 0, katz_ab: 0, katz_ba: 0, top_contributors: [], no_real_paths: true };
   }
 
   const katz_ab = Math.max(0, K[ai][bi]);
@@ -307,15 +318,19 @@ function katzPredict(
   const p_a_wins = Math.max(0.02, Math.min(0.98, evidence_mass > 0 ? katz_ab / evidence_mass : 0.5));
   const confidence = Math.max(0, Math.min(1, 1 - Math.exp(-evidence_mass * 0.8)));
 
-  // Top-2 contributors via 2-hop K mass: β² × P[A→m] × P[m→B]
+  // Contributors: only traverse real observed edges (A→m AND m→B must both exist in game history)
   const n = ids.length;
   const contributors: Array<{ playerId: string; mass: number }> = [];
   for (let m = 0; m < n; m++) {
     if (m === ai || m === bi) continue;
+    if (!observedEdge[ai][m] || !observedEdge[m][bi]) continue;
     const mass = BETA * BETA * P[ai][m] * P[m][bi];
     if (mass > 0) contributors.push({ playerId: ids[m], mass });
   }
   contributors.sort((a, b) => b.mass - a.mass);
+
+  // no_real_paths: no observed 2-hop paths AND no direct games
+  const no_real_paths = directGames === 0 && contributors.length === 0;
 
   return {
     p_a_wins,
@@ -325,6 +340,7 @@ function katzPredict(
     katz_ab,
     katz_ba,
     top_contributors: contributors.slice(0, 2),
+    no_real_paths,
   };
 }
 

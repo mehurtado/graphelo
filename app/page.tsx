@@ -1513,7 +1513,10 @@ export default function Home() {
             );
             const aWins = h2h.filter(g => g.winner_id === predA).length;
             const bWins = h2h.length - aWins;
-            const ciA = katzCI(pA, prediction.direct_games, prediction.evidence_mass);
+            // CI sourced from simulation (binomial on sim counts) when available; fall back to heuristic
+            const ciA: [number, number] = simWins !== undefined
+              ? wilsonCI(simWins, 1000, 1.645)   // 90% CI
+              : katzCI(pA, prediction.direct_games, prediction.evidence_mass);
             const ciB: [number, number] = [1 - ciA[1], 1 - ciA[0]];
             return (
               <div className="fade-in">
@@ -1585,9 +1588,19 @@ export default function Home() {
                       </div>
                     ))}
                   </div>
-                  {prediction.top_contributors.length > 0 && (
-                    <div style={{ marginTop: 14 }}>
-                      <div className="section-label" style={{ marginBottom: 8 }}>INFERRED VIA</div>
+                  <div style={{ marginTop: 14 }}>
+                    <div className="section-label" style={{ marginBottom: 8 }}>INFERRED VIA</div>
+                    {prediction.no_real_paths ? (
+                      <div style={{ padding: "8px 10px", border: "1px solid var(--border2)", color: "var(--text-dim)" }}>
+                        <div className="font-mono" style={{ fontSize: "0.82rem", marginBottom: 4, color: "var(--neutral)" }}>
+                          NO OBSERVED GAME PATHS
+                        </div>
+                        <div className="font-mono" style={{ fontSize: "0.78rem" }}>
+                          No transitive game evidence exists between these players.
+                          Prediction is based on stat prior only (KD, win rate).
+                        </div>
+                      </div>
+                    ) : prediction.top_contributors.length > 0 ? (
                       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                         {(() => {
                           const total = prediction.top_contributors.reduce((s, c) => s + c.mass, 0);
@@ -1609,8 +1622,12 @@ export default function Home() {
                           });
                         })()}
                       </div>
-                    </div>
-                  )}
+                    ) : (
+                      <div className="font-mono" style={{ fontSize: "0.78rem", color: "var(--text-dim)" }}>
+                        Direct match only — no transitive paths.
+                      </div>
+                    )}
+                  </div>
                   {/* Upset alert */}
                   {(() => {
                     const alert = computeUpsetAlert(predA, predB, pA, formRating);
