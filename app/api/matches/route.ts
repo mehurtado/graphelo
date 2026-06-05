@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 export const dynamic = "force-dynamic";
 import { loadState, saveGame } from "@/lib/storage";
+import type { Game } from "@/lib/graph-engine";
 import { v4 as uuidv4 } from "uuid";
 
 export async function POST(req: NextRequest) {
   try {
-    const { winner_id, loser_id, winner_stats, loser_stats } = await req.json();
+    const { winner_id, loser_id, winner_stats, loser_stats, score_winner, score_loser } = await req.json();
     if (!winner_id || !loser_id) return NextResponse.json({ error: "winner_id and loser_id required" }, { status: 400 });
     if (winner_id === loser_id) return NextResponse.json({ error: "Players must be different" }, { status: 400 });
 
@@ -13,13 +14,16 @@ export async function POST(req: NextRequest) {
     if (!state.players[winner_id]) return NextResponse.json({ error: `Unknown player: ${winner_id}` }, { status: 400 });
     if (!state.players[loser_id]) return NextResponse.json({ error: `Unknown player: ${loser_id}` }, { status: 400 });
 
-    const game = {
+    const game: Game = {
       id: uuidv4(),
       timestamp: Date.now(),
       winner_id,
       loser_id,
       winner_stats: winner_stats ?? { kills: 0, deaths: 0 },
       loser_stats:  loser_stats  ?? { kills: 0, deaths: 0 },
+      ...(score_winner !== undefined && score_loser !== undefined
+        ? { score_winner: Number(score_winner), score_loser: Number(score_loser) }
+        : {}),
     };
     await saveGame(game);
     state.games.push(game);

@@ -1,9 +1,9 @@
 "use client";
 import { useState, useEffect, useCallback, useMemo } from "react";
-import type { GraphState, Game, RankEntry, PairwisePrediction, PerGameStats, H2hSim } from "@/lib/graph-engine";
-import { simulateRoundRobin, predictPairwise, computeElo, computePredictionAccuracy, computeEloHistory, computeMetaStability, computeReliability, computeEloVelocity } from "@/lib/graph-engine";
+import type { GraphState, Game, RankEntry, PairwisePrediction, PerGameStats, H2hSim, BTResult, CycleAnalysis, LooCvResult, SkillGapTrend } from "@/lib/graph-engine";
+import { simulateRoundRobin, predictPairwise, computeElo, computePredictionAccuracy, computeEloHistory, computeMetaStability, computeReliability, computeEloVelocity, computeBradleyTerry, computeCycles, computeCeilingEstimate, computeNemesisProfile, computeParityIndex, computeFormRating, computeLooCvBrier, computeSkillGapTrend, computeRematchUrgency, computeUpsetAlert, kendallTauAgreement } from "@/lib/graph-engine";
 
-type Tab = "ranking" | "log" | "matchup" | "history" | "players";
+type Tab = "ranking" | "log" | "matchup" | "history" | "players" | "system";
 
 const LIGHT_VARS: Record<string, string> = {
   "--bg":         "#f0f4f8",
@@ -329,13 +329,13 @@ function computeStreak(playerId: string, games: Game[]) {
   return { count, win, form };
 }
 
-function computeArchetype(playerId: string, ranking: RankEntry[], state: GraphState): string {
+function computeArchetype(playerId: string, ranking: RankEntry[], state: GraphState, eloHistory?: Record<string, Array<{ timestamp: number; elo: number }>>): string {
   const rank = ranking.findIndex(r => r.player_id === playerId);
   const n = ranking.length;
   const entry = ranking[rank];
   if (!entry) return "";
   const sv = entry.stat_vec;
-  if (sv.games_played < 2) return "ROOKIE";
+  if (sv.games_played < 5) return "THE UNKNOWN";
 
   const games = [...state.games]
     .sort((a, b) => a.timestamp - b.timestamp)
@@ -355,12 +355,28 @@ function computeArchetype(playerId: string, ranking: RankEntry[], state: GraphSt
 
   const maxGames = Math.max(...ranking.map(r => r.stat_vec.games_played));
 
+  // ELO velocity slope
+  let eloSlope = 0;
+  if (eloHistory) {
+    const h = eloHistory[playerId] ?? [];
+    const recent = h.slice(-5);
+    if (recent.length >= 2) {
+      const xMean = (recent.length - 1) / 2;
+      const yMean = recent.reduce((s, p) => s + p.elo, 0) / recent.length;
+      const num = recent.reduce((s, p, i) => s + (i - xMean) * (p.elo - yMean), 0);
+      const den = recent.reduce((s, _, i) => s + (i - xMean) ** 2, 0);
+      eloSlope = den > 0 ? num / den : 0;
+    }
+  }
+
   if (rank === 0 && sv.win_rate > 0.6) return "THE TYRANT";
+  if (eloSlope >= 3.0) return "THE CLIMBER";
+  if (sv.kd >= 3.0 && sv.win_rate < 0.5) return "THE FRAGGER";
+  if (sv.kd <= 1.5 && sv.win_rate > 0.55) return "THE TACTICIAN";
   if (vsTop.length >= 2 && vsBot.length >= 2 && wrTop >= 0 && wrBot >= 0 && wrTop - wrBot > 0.3) return "GIANT KILLER";
   if (vsTop.length >= 2 && vsBot.length >= 2 && wrTop >= 0 && wrBot >= 0 && wrBot - wrTop > 0.3) return "THE BULLY";
   if (games.length >= 5 && streakRatio < 0.3) return "THE STREAKY";
   if (sv.games_played >= maxGames && sv.games_played >= 4) return "THE GRINDER";
-  if (sv.kd > 2.5 && sv.win_rate < 0.5) return "THE FRAGGER";
   if (sv.kd < 1.2 && sv.win_rate > 0.55) return "THE CLOSER";
   return "THE SOLDIER";
 }
@@ -618,6 +634,15 @@ export default function Home() {
   const [selectedRivalry, setSelectedRivalry] = useState<string | null>(null);
   const [theme, setTheme] = useState<"dark" | "light">("dark");
   const [h2hSim, setH2hSim] = useState<H2hSim>({});
+  const [champCounts, setChampCounts] = useState<Record<string, number>>({});
+  const [btResult, setBtResult] = useState<BTResult | null>(null);
+  const [cycleAnalysis, setCycleAnalysis] = useState<CycleAnalysis | null>(null);
+  const [looCv, setLooCv] = useState<LooCvResult | null>(null);
+  const [skillGap, setSkillGap] = useState<SkillGapTrend | null>(null);
+  const [formRating, setFormRating] = useState<Record<string, number>>({});
+  const [suggestSort, setSuggestSort] = useState<"closest" | "elovalue" | "uncertain">("closest");
+  const [scoreWinner, setScoreWinner] = useState<string>("");
+  const [scoreLoser, setScoreLoser] = useState<string>("");
 
   useEffect(() => {
     const saved = localStorage.getItem("graphelo-theme") as "dark" | "light" | null;
@@ -678,10 +703,18 @@ export default function Home() {
       const result = simulateRoundRobin(s);
       setRanking(result.ranking);
       setH2hSim(result.h2h_sim);
-      setElo(computeElo(s));
-      setEloHistory(computeEloHistory(s));
+      setChampCounts(result.champ_counts);
+      const eloMap = computeElo(s);
+      setElo(eloMap);
+      const hist = computeEloHistory(s);
+      setEloHistory(hist);
       setMetaStability(computeMetaStability(s));
       if (s.games.length > 1) setPredAccuracy(computePredictionAccuracy(s));
+      setBtResult(computeBradleyTerry(s));
+      setCycleAnalysis(computeCycles(s));
+      setLooCv(computeLooCvBrier(s));
+      setSkillGap(computeSkillGapTrend(s));
+      setFormRating(computeFormRating(s));
     } catch { setError("Ranking failed"); }
   }, []);
 
@@ -783,9 +816,12 @@ export default function Home() {
     if (!logWinner || !logLoser) return;
     setLogging(true); setLogMsg("");
     try {
+      const sw = parseInt(scoreWinner), sl = parseInt(scoreLoser);
+      const body: Record<string, unknown> = { winner_id: logWinner, loser_id: logLoser, winner_stats: winStats, loser_stats: loseStats };
+      if (!isNaN(sw) && !isNaN(sl) && sw > sl) { body.score_winner = sw; body.score_loser = sl; }
       const res = await fetch("/api/matches", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ winner_id: logWinner, loser_id: logLoser, winner_stats: winStats, loser_stats: loseStats }),
+        body: JSON.stringify(body),
       });
       if (!res.ok) { const d = await res.json(); setError(d.error); }
       else {
@@ -793,6 +829,7 @@ export default function Home() {
         setLogMsg(`✓ ${state.players[logWinner]?.display_name} def. ${state.players[logLoser]?.display_name}`);
         setLogWinner(""); setLogLoser("");
         setWinStats(EMPTY_STATS()); setLoseStats(EMPTY_STATS());
+        setScoreWinner(""); setScoreLoser("");
         setState(s);
         computeRanking(s);
       }
@@ -866,7 +903,7 @@ export default function Home() {
 
       {/* Tabs */}
       <div style={{ display: "flex", borderBottom: "1px solid var(--border)", marginBottom: 20 }}>
-        {(["ranking", "log", "matchup", "history", "players"] as Tab[]).map(t => (
+        {(["ranking", "log", "matchup", "history", "players", "system"] as Tab[]).map(t => (
           <button key={t} className={`tab ${tab === t ? "active" : ""}`} onClick={() => setTab(t)}>{t}</button>
         ))}
       </div>
@@ -876,12 +913,17 @@ export default function Home() {
       {/* ── RANKING ── */}
       {!loading && tab === "ranking" && (
         <div className="fade-in">
-          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8, flexWrap: "wrap" }}>
             <div className="section-label">ROUND ROBIN RANKING</div>
-            <span className="font-mono" style={{ fontSize: "0.6rem", color: "var(--text-dim)" }}>1000-TOURNAMENT MONTE CARLO · KATZ DIFFUSION β=0.5 · CHAMP RATE</span>
-            {predAccuracy && predAccuracy.total >= 3 && (
-              <span className="font-mono" style={{ fontSize: "0.6rem", color: predAccuracy.correct / predAccuracy.total > 0.65 ? "var(--win)" : "var(--text-dim)" }}>
-                MODEL {Math.round(predAccuracy.correct / predAccuracy.total * 100)}% ACC ({predAccuracy.correct}/{predAccuracy.total})
+            <span className="font-mono" style={{ fontSize: "0.6rem", color: "var(--text-dim)" }}>KATZ β=0.5 · 1000-MC</span>
+            {looCv && looCv.n >= 3 && (
+              <span className="font-mono" style={{ fontSize: "0.6rem", color: looCv.brier_skill > 0.1 ? "var(--win)" : "var(--text-dim)" }}>
+                LOO {Math.round(looCv.accuracy * 100)}% · BRIER {looCv.brier_score.toFixed(2)} · SKILL +{Math.round(looCv.brier_skill * 100)}%
+              </span>
+            )}
+            {!looCv && predAccuracy && predAccuracy.total >= 3 && (
+              <span className="font-mono" style={{ fontSize: "0.6rem", color: "var(--text-dim)" }}>
+                IN-SAMPLE {Math.round(predAccuracy.correct / predAccuracy.total * 100)}% ({predAccuracy.correct}/{predAccuracy.total})
               </span>
             )}
             {metaStability !== null && (
@@ -898,6 +940,19 @@ export default function Home() {
               <button className="btn" style={{ padding: "3px 8px", fontSize: "0.7rem" }} onClick={() => computeRanking(state)}>↺</button>
             </div>
           </div>
+          {/* Parity + skill gap banner */}
+          {Object.keys(state.players).length >= 2 && state.games.length >= 4 && (() => {
+            const parity = computeParityIndex(state, champCounts, 1000);
+            return (
+              <div style={{ display: "flex", gap: 16, marginBottom: 14, flexWrap: "wrap" }}>
+                <span className="font-mono" style={{ fontSize: "0.6rem", color: "var(--text-dim)" }}>
+                  PARITY <span style={{ color: parity.normalized_parity > 0.7 ? "var(--win)" : parity.normalized_parity > 0.4 ? "var(--neutral)" : "var(--lose)" }}>{Math.round(parity.normalized_parity * 100)}%</span>
+                  {" · "}ELO SPREAD <span style={{ color: "var(--text-bright)" }}>±{Math.round(parity.elo_spread)}pts</span>
+                  {skillGap && <> {" · "}FIELD <span style={{ color: skillGap.trend === "CONVERGING" ? "var(--win)" : skillGap.trend === "DIVERGING" ? "var(--lose)" : "var(--text-dim)" }}>{skillGap.trend} {skillGap.trend === "CONVERGING" ? "↓" : skillGap.trend === "DIVERGING" ? "↑" : "→"}</span></>}
+                </span>
+              </div>
+            );
+          })()}
 
           {mostInteresting && state.games.length > 0 && (
             <div className="panel" style={{ padding: "11px 16px", marginBottom: 14, display: "flex", alignItems: "center", gap: 14, borderColor: "var(--accent)" }}>
@@ -937,7 +992,7 @@ export default function Home() {
 
               {/* Table header */}
               <div style={{ display: "grid", gridTemplateColumns: "28px 1fr 64px 72px 56px 64px 64px 72px", gap: 10, padding: "5px 12px", marginBottom: 4 }}>
-                {["#", "PLAYER", "WIN%", "CHAMP%", "ELO", "KD", "KPR", "W-L"].map((h, i) => (
+                {["#", "PLAYER", "WIN%", "CHAMP%", "ELO", "KD", "KPG", "W-L"].map((h, i) => (
                   <span key={h} className="section-label" style={{ textAlign: i > 1 ? "right" : "left" }}>{h}</span>
                 ))}
               </div>
@@ -947,7 +1002,7 @@ export default function Home() {
                 const isTop = i === 0;
                 const streak = computeStreak(r.player_id, state.games);
                 const isSelected = selectedPlayer === r.player_id;
-                const archetype = computeArchetype(r.player_id, sortedRanking, state);
+                const archetype = computeArchetype(r.player_id, sortedRanking, state, eloHistory);
                 return (
                   <div key={r.player_id} style={{ marginBottom: 1 }}>
                     <div className="panel corner-tl" onClick={() => setSelectedPlayer(isSelected ? null : r.player_id)} style={{
@@ -1099,8 +1154,13 @@ export default function Home() {
                             const rel = computeReliability(r.player_id, state.games);
                             const relLabel = rel < 0.3 ? "LOW" : rel < 0.65 ? "MED" : "HIGH";
                             const relColor = rel < 0.3 ? "var(--lose)" : rel < 0.65 ? "var(--neutral)" : "var(--win)";
+                            const bt = btResult?.ratings[r.player_id];
+                            const btSe = btResult?.se[r.player_id];
+                            const btRank = btResult ? [...Object.entries(btResult.ratings)].sort((a, b) => b[1] - a[1]).findIndex(([id]) => id === r.player_id) : -1;
+                            const eloRankIdx = [...sortedRanking].sort((a, b) => (elo[b.player_id] ?? 1000) - (elo[a.player_id] ?? 1000)).findIndex(x => x.player_id === r.player_id);
+                            const btDiverges = btRank >= 0 && Math.abs(btRank - eloRankIdx) >= 2;
                             return (
-                              <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px solid var(--border)", display: "flex", gap: 24 }}>
+                              <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px solid var(--border)", display: "flex", gap: 24, flexWrap: "wrap" }}>
                                 <div>
                                   <div className="section-label" style={{ marginBottom: 3 }}>PAGERANK AUTHORITY</div>
                                   <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
@@ -1115,6 +1175,68 @@ export default function Home() {
                                     <span className="font-mono" style={{ fontSize: "0.62rem", color: "var(--text-dim)" }}>{Math.round(rel * 100)}%</span>
                                   </div>
                                 </div>
+                                {bt !== undefined && btSe !== undefined && (
+                                  <div>
+                                    <div className="section-label" style={{ marginBottom: 3 }}>BRADLEY-TERRY</div>
+                                    <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+                                      <span className="font-mono" style={{ fontSize: "0.82rem", color: "var(--accent)" }}>{bt}</span>
+                                      <span className="font-mono" style={{ fontSize: "0.62rem", color: "var(--text-dim)" }}>±{Math.round(btSe)}</span>
+                                      {btDiverges && <span className="font-mono" style={{ fontSize: "0.58rem", color: "var(--neutral)", border: "1px solid var(--neutral)", padding: "0 3px" }}>DIVERGENT</span>}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })()}
+                          {/* Ceiling estimate */}
+                          {(() => {
+                            const rel = computeReliability(r.player_id, state.games);
+                            if (rel < 0.65) return null;
+                            const h = eloHistory[r.player_id] ?? [];
+                            if (h.length < 8) return null;
+                            const est = computeCeilingEstimate(h);
+                            if (!est) return null;
+                            return (
+                              <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid var(--border)" }}>
+                                <div className="section-label" style={{ marginBottom: 4 }}>CEILING ESTIMATE</div>
+                                <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+                                  <span className="font-mono" style={{ fontSize: "0.88rem", color: "var(--accent)" }}>{est.ceiling}</span>
+                                  <span className="font-mono" style={{ fontSize: "0.62rem", color: "var(--text-dim)" }}>±{est.se}</span>
+                                  <span className="font-mono" style={{ fontSize: "0.6rem", color: est.plateaued ? "var(--neutral)" : "var(--win)" }}>
+                                    {est.plateaued ? "PLATEAUED" : `+${est.gap_to_ceiling} gap`}
+                                  </span>
+                                </div>
+                              </div>
+                            );
+                          })()}
+                          {/* Nemesis / victim */}
+                          {(() => {
+                            const profile = computeNemesisProfile(state, r.player_id);
+                            if (!profile.nemesis && !profile.victim) return null;
+                            return (
+                              <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid var(--border)", display: "flex", gap: 24, flexWrap: "wrap" }}>
+                                {profile.nemesis && (
+                                  <div>
+                                    <div className="section-label" style={{ marginBottom: 3, color: "var(--lose)" }}>NEMESIS</div>
+                                    <span className="font-mono" style={{ fontSize: "0.75rem", color: "var(--lose)" }}>
+                                      {state.players[profile.nemesis.opponent_id]?.display_name ?? profile.nemesis.opponent_id}
+                                    </span>
+                                    <span className="font-mono" style={{ fontSize: "0.6rem", color: "var(--text-dim)", marginLeft: 6 }}>
+                                      {Math.round(profile.nemesis.actual_wr * 100)}% actual vs {Math.round(profile.nemesis.expected_wr * 100)}% expected
+                                    </span>
+                                  </div>
+                                )}
+                                {profile.victim && (
+                                  <div>
+                                    <div className="section-label" style={{ marginBottom: 3, color: "var(--win)" }}>VICTIM</div>
+                                    <span className="font-mono" style={{ fontSize: "0.75rem", color: "var(--win)" }}>
+                                      {state.players[profile.victim.opponent_id]?.display_name ?? profile.victim.opponent_id}
+                                    </span>
+                                    <span className="font-mono" style={{ fontSize: "0.6rem", color: "var(--text-dim)", marginLeft: 6 }}>
+                                      {Math.round(profile.victim.actual_wr * 100)}% actual vs {Math.round(profile.victim.expected_wr * 100)}% expected
+                                    </span>
+                                  </div>
+                                )}
                               </div>
                             );
                           })()}
@@ -1255,6 +1377,21 @@ export default function Home() {
               </div>
             </div>
 
+            {/* Score inputs */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 36px 1fr", gap: 12, alignItems: "end", marginBottom: 14 }}>
+              <div>
+                <div style={{ fontSize: "0.58rem", color: "var(--text-dim)", fontFamily: "Share Tech Mono", letterSpacing: "0.1em", marginBottom: 2 }}>WINNER SCORE</div>
+                <input className="input" type="number" min="0" max="99" value={scoreWinner}
+                  onChange={e => setScoreWinner(e.target.value)} placeholder="e.g. 7" style={{ padding: "4px 8px", fontSize: "0.9rem" }} />
+              </div>
+              <div style={{ textAlign: "center", fontFamily: "Rajdhani", fontWeight: 700, color: "var(--text-dim)", paddingBottom: 10 }}>—</div>
+              <div>
+                <div style={{ fontSize: "0.58rem", color: "var(--text-dim)", fontFamily: "Share Tech Mono", letterSpacing: "0.1em", marginBottom: 2 }}>LOSER SCORE</div>
+                <input className="input" type="number" min="0" max="99" value={scoreLoser}
+                  onChange={e => setScoreLoser(e.target.value)} placeholder="e.g. 3" style={{ padding: "4px 8px", fontSize: "0.9rem" }} />
+              </div>
+            </div>
+
             {/* Stats inputs */}
             <div className="panel" style={{ padding: 16, marginBottom: 14 }}>
               <div style={{ display: "flex", gap: 20 }}>
@@ -1305,24 +1442,52 @@ export default function Home() {
 
           {predA && players.length > 1 && (
             <div style={{ marginTop: 16 }}>
-              <div className="section-label" style={{ marginBottom: 8 }}>
-                SUGGESTED OPPONENTS FOR {state.players[predA]?.display_name?.toUpperCase()}
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+                <div className="section-label">SUGGESTED OPPONENTS FOR {state.players[predA]?.display_name?.toUpperCase()}</div>
+                <div style={{ marginLeft: "auto", display: "flex", gap: 4 }}>
+                  {(["closest", "elovalue", "uncertain"] as const).map(s => (
+                    <button key={s} className="btn" onClick={() => setSuggestSort(s)}
+                      style={{ padding: "1px 7px", fontSize: "0.58rem", background: suggestSort === s ? "var(--accent)" : undefined, color: suggestSort === s ? "#000" : undefined }}>
+                      {s === "closest" ? "CLOSEST" : s === "elovalue" ? "ELO VALUE" : "UNCERTAIN"}
+                    </button>
+                  ))}
+                </div>
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
                 {players
                   .filter(p => p.id !== predA)
                   .map(p => {
                     const pred = predictPairwise(state, predA, p.id);
-                    return { player: p, pred, diff: Math.abs(pred.p_a_wins - 0.5) };
+                    const diff = Math.abs(pred.p_a_wins - 0.5);
+                    const eloMap = elo;
+                    const rA = eloMap[predA] ?? 1000, rB = eloMap[p.id] ?? 1000;
+                    const eloExpected = 1 / (1 + Math.pow(10, (rB - rA) / 400));
+                    // ELO value = expected gain for underdog (pred favors them more than elo)
+                    const eloValue = pred.p_a_wins > eloExpected ? pred.p_a_wins - eloExpected : eloExpected - pred.p_a_wins;
+                    const uncertain = 1 - pred.confidence;
+                    const sortScore = suggestSort === "closest" ? -diff : suggestSort === "elovalue" ? eloValue : uncertain;
+                    return { player: p, pred, diff, sortScore };
                   })
-                  .sort((a, b) => a.diff - b.diff)
+                  .sort((a, b) => b.sortScore - a.sortScore)
                   .map(({ player, pred }) => {
                     const color = pred.p_a_wins > 0.6 ? "var(--win)" : pred.p_a_wins < 0.4 ? "var(--lose)" : "var(--neutral)";
+                    const urgency = computeRematchUrgency(state, predA, player.id);
+                    const alert = computeUpsetAlert(predA, player.id, pred.p_a_wins, formRating);
                     return (
-                      <div key={player.id} className="panel" style={{ padding: "8px 12px", display: "flex", alignItems: "center", cursor: "pointer" }}
+                      <div key={player.id} className="panel" style={{ padding: "8px 12px", display: "flex", alignItems: "center", gap: 8, cursor: "pointer", borderColor: alert ? "var(--neutral)" : undefined }}
                         onClick={() => { setPredB(player.id); setPrediction(pred); }}>
                         <span className="player-name" style={{ flex: 1 }}>{player.display_name}</span>
-                        <span className="font-mono" style={{ fontSize: "0.75rem", color, marginRight: 8 }}>{pct(pred.p_a_wins, 1)}</span>
+                        {urgency && urgency.prediction_shift >= 0.1 && (
+                          <span className="font-mono" style={{ fontSize: "0.55rem", color: "var(--neutral)", border: "1px solid var(--neutral)", padding: "0 3px" }}>
+                            REMATCH ↑{Math.round(urgency.prediction_shift * 100)}%
+                          </span>
+                        )}
+                        {alert && (
+                          <span className="font-mono" style={{ fontSize: "0.55rem", color: "var(--neutral)", border: "1px solid var(--neutral)", padding: "0 3px" }}>
+                            ⚡ {alert.alert_level}
+                          </span>
+                        )}
+                        <span className="font-mono" style={{ fontSize: "0.75rem", color, marginRight: 4 }}>{pct(pred.p_a_wins, 1)}</span>
                         <span className="font-mono" style={{ fontSize: "0.6rem", color: "var(--text-dim)" }}>
                           {pred.p_a_wins > 0.6 ? "FAVORED" : pred.p_a_wins < 0.4 ? "UNDERDOG" : "EVEN"}
                         </span>
@@ -1446,6 +1611,38 @@ export default function Home() {
                       </div>
                     </div>
                   )}
+                  {/* Upset alert */}
+                  {(() => {
+                    const alert = computeUpsetAlert(predA, predB, pA, formRating);
+                    if (!alert) return null;
+                    const underdogName = state.players[alert.underdog]?.display_name ?? alert.underdog;
+                    return (
+                      <div style={{ marginTop: 12, padding: "8px 10px", border: "1px solid var(--neutral)", color: "var(--neutral)" }}>
+                        <div className="font-mono" style={{ fontSize: "0.62rem", marginBottom: 2 }}>
+                          ⚡ UPSET ALERT ({alert.alert_level})
+                        </div>
+                        <div className="font-mono" style={{ fontSize: "0.58rem", color: "var(--text-dim)" }}>
+                          Katz: {pct(alert.elo_win_prob, 1)} · Form: {pct(alert.form_win_prob, 1)} · Δ{Math.round(alert.divergence * 100)}%
+                        </div>
+                        <div className="font-mono" style={{ fontSize: "0.58rem", color: "var(--text-dim)" }}>
+                          {underdogName}&apos;s form rating diverges from model prediction
+                        </div>
+                      </div>
+                    );
+                  })()}
+                  {/* Rematch urgency */}
+                  {(() => {
+                    if (!predA || !predB) return null;
+                    const urg = computeRematchUrgency(state, predA, predB);
+                    if (!urg || urg.prediction_shift < 0.1) return null;
+                    return (
+                      <div style={{ marginTop: 8, padding: "6px 10px", border: "1px solid var(--border)" }}>
+                        <div className="font-mono" style={{ fontSize: "0.58rem", color: "var(--text-dim)" }}>
+                          REMATCH CONTEXT · {urg.days_since}d ago · prediction shift +{Math.round(urg.prediction_shift * 100)}% · {urg.direction}
+                        </div>
+                      </div>
+                    );
+                  })()}
                   {/* Compact sim metadata — model prior shown as diagnostic input, not headline */}
                   <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px solid var(--border)" }}>
                     <div className="font-mono" style={{ fontSize: "0.6rem", color: "var(--text-dim)", display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
@@ -1712,6 +1909,184 @@ export default function Home() {
             API HOOK READY — swap computeStatVector() in lib/graph-engine.ts<br />
             with r6data.com fetch to pull ranked stats automatically.
           </div>
+        </div>
+      )}
+
+      {/* ── SYSTEM ── */}
+      {tab === "system" && (
+        <div className="fade-in">
+          <div className="section-label" style={{ marginBottom: 16 }}>SYSTEM ANALYTICS</div>
+
+          {/* Model Validation */}
+          <div className="panel" style={{ padding: "14px 18px", marginBottom: 14 }}>
+            <div className="section-label" style={{ marginBottom: 10, color: "var(--accent)" }}>MODEL VALIDATION</div>
+            {looCv ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                <div style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
+                  <div>
+                    <div className="section-label" style={{ marginBottom: 2 }}>LOO ACCURACY</div>
+                    <span className="font-mono" style={{ fontSize: "0.9rem", color: looCv.accuracy > 0.6 ? "var(--win)" : "var(--text-bright)" }}>{Math.round(looCv.accuracy * 100)}%</span>
+                    <span className="font-mono" style={{ fontSize: "0.6rem", color: "var(--text-dim)", marginLeft: 6 }}>({looCv.n} predictions)</span>
+                  </div>
+                  <div>
+                    <div className="section-label" style={{ marginBottom: 2 }}>LOO BRIER</div>
+                    <span className="font-mono" style={{ fontSize: "0.9rem", color: "var(--text-bright)" }}>{looCv.brier_score.toFixed(3)}</span>
+                    <span className="font-mono" style={{ fontSize: "0.6rem", color: "var(--text-dim)", marginLeft: 6 }}>random=0.250</span>
+                  </div>
+                  <div>
+                    <div className="section-label" style={{ marginBottom: 2 }}>BRIER SKILL</div>
+                    <span className="font-mono" style={{ fontSize: "0.9rem", color: looCv.brier_skill > 0.05 ? "var(--win)" : "var(--lose)" }}>+{Math.round(looCv.brier_skill * 100)}%</span>
+                    <span className="font-mono" style={{ fontSize: "0.6rem", color: "var(--text-dim)", marginLeft: 6 }}>vs random</span>
+                  </div>
+                  <div>
+                    <div className="section-label" style={{ marginBottom: 2 }}>IN-SAMPLE</div>
+                    <span className="font-mono" style={{ fontSize: "0.9rem", color: "var(--text-dim)" }}>{Math.round(looCv.in_sample_accuracy * 100)}%</span>
+                    <span className="font-mono" style={{ fontSize: "0.58rem", color: "var(--text-dim)", marginLeft: 6 }}>← optimistic</span>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="font-mono" style={{ fontSize: "0.72rem", color: "var(--text-dim)" }}>Need ≥4 games for LOO validation.</div>
+            )}
+          </div>
+
+          {/* Bradley-Terry vs ELO vs Katz */}
+          {btResult && ranking.length >= 2 && (() => {
+            const eloOrder = [...ranking].sort((a, b) => (elo[b.player_id] ?? 1000) - (elo[a.player_id] ?? 1000)).map(r => r.player_id);
+            const katzOrder = ranking.map(r => r.player_id);
+            const btOrder = [...btResult.ids].sort((a, b) => (btResult.ratings[b] ?? 1000) - (btResult.ratings[a] ?? 1000));
+            const katzVsElo  = kendallTauAgreement(katzOrder, eloOrder);
+            const katzVsBt   = kendallTauAgreement(katzOrder, btOrder);
+            const eloVsBt    = kendallTauAgreement(eloOrder, btOrder);
+            return (
+              <div className="panel" style={{ padding: "14px 18px", marginBottom: 14 }}>
+                <div className="section-label" style={{ marginBottom: 10, color: "var(--accent)" }}>RANKING AGREEMENT (KENDALL τ)</div>
+                <div style={{ display: "flex", gap: 24, flexWrap: "wrap", marginBottom: 10 }}>
+                  {[
+                    { label: "KATZ vs ELO",  tau: katzVsElo },
+                    { label: "KATZ vs BT",   tau: katzVsBt },
+                    { label: "ELO vs BT",    tau: eloVsBt },
+                  ].map(({ label, tau }) => (
+                    <div key={label}>
+                      <div className="section-label" style={{ marginBottom: 2 }}>{label}</div>
+                      <span className="font-mono" style={{ fontSize: "0.9rem", color: tau > 0.8 ? "var(--win)" : tau > 0.5 ? "var(--neutral)" : "var(--lose)" }}>{tau.toFixed(2)}</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="section-label" style={{ marginBottom: 6 }}>BT RATINGS</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                  {btOrder.map((id, i) => {
+                    const btRating = btResult.ratings[id] ?? 1000;
+                    const se = btResult.se[id] ?? 0;
+                    const eloRankIdx = eloOrder.indexOf(id);
+                    const diff = Math.abs(i - eloRankIdx);
+                    return (
+                      <div key={id} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                        <span className="font-mono" style={{ fontSize: "0.62rem", color: "var(--text-dim)", minWidth: 18 }}>#{i + 1}</span>
+                        <span className="player-name" style={{ minWidth: 100 }}>{state.players[id]?.display_name ?? id}</span>
+                        <span className="font-mono" style={{ fontSize: "0.82rem", color: "var(--accent)" }}>{btRating}</span>
+                        <span className="font-mono" style={{ fontSize: "0.6rem", color: "var(--text-dim)" }}>±{Math.round(se)}</span>
+                        {diff >= 2 && (
+                          <span className="font-mono" style={{ fontSize: "0.55rem", color: "var(--neutral)", border: "1px solid var(--neutral)", padding: "0 3px" }}>
+                            ELO #{eloRankIdx + 1}
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* Parity + skill gap */}
+          {state.games.length >= 4 && (() => {
+            const parity = computeParityIndex(state, champCounts, 1000);
+            return (
+              <div className="panel" style={{ padding: "14px 18px", marginBottom: 14 }}>
+                <div className="section-label" style={{ marginBottom: 10, color: "var(--accent)" }}>POOL PARITY</div>
+                <div style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
+                  <div>
+                    <div className="section-label" style={{ marginBottom: 2 }}>PARITY INDEX</div>
+                    <span className="font-mono" style={{ fontSize: "0.9rem", color: parity.normalized_parity > 0.7 ? "var(--win)" : parity.normalized_parity > 0.4 ? "var(--neutral)" : "var(--lose)" }}>
+                      {Math.round(parity.normalized_parity * 100)}%
+                    </span>
+                  </div>
+                  <div>
+                    <div className="section-label" style={{ marginBottom: 2 }}>ELO SPREAD</div>
+                    <span className="font-mono" style={{ fontSize: "0.9rem", color: "var(--text-bright)" }}>±{Math.round(parity.elo_spread)}</span>
+                    <span className="font-mono" style={{ fontSize: "0.6rem", color: "var(--text-dim)", marginLeft: 6 }}>pts std dev</span>
+                  </div>
+                  <div>
+                    <div className="section-label" style={{ marginBottom: 2 }}>COMPETITIVE ENTROPY</div>
+                    <span className="font-mono" style={{ fontSize: "0.9rem", color: "var(--text-bright)" }}>{parity.entropy.toFixed(2)}</span>
+                    <span className="font-mono" style={{ fontSize: "0.6rem", color: "var(--text-dim)", marginLeft: 6 }}>/ {parity.max_entropy.toFixed(2)} max</span>
+                  </div>
+                  {skillGap && (
+                    <div>
+                      <div className="section-label" style={{ marginBottom: 2 }}>SKILL GAP TREND</div>
+                      <span className="font-mono" style={{ fontSize: "0.9rem", color: skillGap.trend === "CONVERGING" ? "var(--win)" : skillGap.trend === "DIVERGING" ? "var(--lose)" : "var(--text-dim)" }}>
+                        {skillGap.trend}
+                      </span>
+                      <span className="font-mono" style={{ fontSize: "0.6rem", color: "var(--text-dim)", marginLeft: 6 }}>
+                        {skillGap.slope > 0 ? "+" : ""}{skillGap.slope} pts/game
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* 3-Cycle Detection */}
+          {cycleAnalysis && (() => {
+            return (
+              <div className="panel" style={{ padding: "14px 18px", marginBottom: 14 }}>
+                <div className="section-label" style={{ marginBottom: 10, color: "var(--accent)" }}>CYCLE ANALYSIS</div>
+                <div style={{ display: "flex", gap: 24, marginBottom: 10, flexWrap: "wrap" }}>
+                  <div>
+                    <div className="section-label" style={{ marginBottom: 2 }}>TRANSITIVITY RATE</div>
+                    <span className="font-mono" style={{ fontSize: "0.9rem", color: cycleAnalysis.transitivity_rate > 0.7 ? "var(--win)" : "var(--neutral)" }}>
+                      {Math.round(cycleAnalysis.transitivity_rate * 100)}%
+                    </span>
+                    <span className="font-mono" style={{ fontSize: "0.6rem", color: "var(--text-dim)", marginLeft: 6 }}>rankings are this transitive</span>
+                  </div>
+                  <div>
+                    <div className="section-label" style={{ marginBottom: 2 }}>3-CYCLES FOUND</div>
+                    <span className="font-mono" style={{ fontSize: "0.9rem", color: cycleAnalysis.cycles.length > 0 ? "var(--neutral)" : "var(--win)" }}>
+                      {cycleAnalysis.cycles.length}
+                    </span>
+                  </div>
+                </div>
+                {cycleAnalysis.cycles.length > 0 && (
+                  <>
+                    <div className="section-label" style={{ marginBottom: 6 }}>RIVALRY TRIANGLES</div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                      {cycleAnalysis.cycles.slice(0, 5).map((cy, idx) => (
+                        <div key={idx} className="panel" style={{ padding: "6px 10px" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            {cy.players.map((id, i) => (
+                              <span key={id} className="font-mono" style={{ fontSize: "0.68rem", color: "var(--text-bright)" }}>
+                                {state.players[id]?.display_name ?? id}{i < 2 ? " →" : ""}
+                              </span>
+                            ))}
+                            <span className="font-mono" style={{ fontSize: "0.58rem", color: "var(--text-dim)", marginLeft: "auto" }}>
+                              → {cy.players[0] ? (state.players[cy.players[0]]?.display_name ?? cy.players[0]) : ""} · strength {cy.strength.toFixed(2)}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )}
+                {cycleAnalysis.total_triples === 0 && (
+                  <div className="font-mono" style={{ fontSize: "0.72rem", color: "var(--text-dim)" }}>
+                    Need ≥2 games per pair to detect cycles.
+                  </div>
+                )}
+              </div>
+            );
+          })()}
         </div>
       )}
 
