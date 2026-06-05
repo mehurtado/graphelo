@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import type { GraphState, Game, RankEntry, PairwisePrediction, PerGameStats, H2hSim, BTResult, CycleAnalysis, LooCvResult, SkillGapTrend } from "@/lib/graph-engine";
 import { simulateRoundRobin, predictPairwise, computeElo, computePredictionAccuracy, computeEloHistory, computeMetaStability, computeReliability, computeEloVelocity, computeBradleyTerry, computeCycles, computeCeilingEstimate, computeNemesisProfile, computeParityIndex, computeFormRating, computeLooCvBrier, computeSkillGapTrend, computeRematchUrgency, computeUpsetAlert, kendallTauAgreement } from "@/lib/graph-engine";
@@ -6,20 +6,20 @@ import { simulateRoundRobin, predictPairwise, computeElo, computePredictionAccur
 type Tab = "ranking" | "log" | "matchup" | "history" | "players" | "system";
 
 const LIGHT_VARS: Record<string, string> = {
-  "--bg":         "#f0f4f8",
+  "--bg":         "#eef3f8",
   "--surface":    "#ffffff",
-  "--surface2":   "#e4ecf4",
-  "--border":     "#c0d0e0",
-  "--border2":    "#90a8bc",
-  "--accent":     "#0077aa",
-  "--accent2":    "#d95000",
+  "--surface2":   "#e2eaf2",
+  "--border":     "#b8cad8",
+  "--border2":    "#8aabbc",
+  "--accent":     "#0076b5",
+  "--accent2":    "#d44e00",
   "--accent3":    "#1a8800",
   "--text":       "#1e2f3e",
-  "--text-dim":   "#607080",
+  "--text-dim":   "#567080",
   "--text-bright":"#0a1828",
-  "--win":        "#1a8800",
-  "--lose":       "#cc1100",
-  "--neutral":    "#886600",
+  "--win":        "#1a8000",
+  "--lose":       "#c01010",
+  "--neutral":    "#7a5a00",
 };
 
 
@@ -176,7 +176,7 @@ function GraphViz({ state, elo }: { state: { players: Record<string, { display_n
           {sources.map(id => (
             <div key={id} style={{ display: "flex", alignItems: "center", gap: 6 }}>
               <svg width={12} height={12}><circle cx={6} cy={6} r={5} fill="none" stroke="var(--win)" strokeWidth={1.5} strokeDasharray="3 1.5" /></svg>
-              <span className="font-mono" style={{ fontSize: "0.6rem", color: "var(--win)" }}>
+              <span className="font-mono" style={{ fontSize: "0.72rem", color: "var(--win)" }}>
                 SOURCE — {(state.players[id] as { display_name: string })?.display_name} beats all opponents in graph
               </span>
             </div>
@@ -184,7 +184,7 @@ function GraphViz({ state, elo }: { state: { players: Record<string, { display_n
           {sinks.map(id => (
             <div key={id} style={{ display: "flex", alignItems: "center", gap: 6 }}>
               <svg width={12} height={12}><circle cx={6} cy={6} r={5} fill="none" stroke="var(--lose)" strokeWidth={1.5} strokeDasharray="3 1.5" /></svg>
-              <span className="font-mono" style={{ fontSize: "0.6rem", color: "var(--lose)" }}>
+              <span className="font-mono" style={{ fontSize: "0.72rem", color: "var(--lose)" }}>
                 SINK — {(state.players[id] as { display_name: string })?.display_name} beaten by all opponents in graph
               </span>
             </div>
@@ -262,11 +262,11 @@ function RivalryTimeline({ rv, games, players }: {
               width: 32, height: 32, borderRadius: "50%", opacity: 0.9,
               background: aWon ? "var(--win)" : "var(--lose)",
               display: "flex", alignItems: "center", justifyContent: "center",
-              fontSize: "0.55rem", fontFamily: "Share Tech Mono", color: "#000", fontWeight: 700,
+              fontSize: "0.67rem", fontFamily: "Share Tech Mono", color: "#000", fontWeight: 700,
             }}>
               {(aWon ? aName : bName).slice(0, 3).toUpperCase()}
             </div>
-            <span className="font-mono" style={{ fontSize: "0.5rem", color: "var(--text-dim)" }}>{aScore}–{bScore}</span>
+            <span className="font-mono" style={{ fontSize: "0.63rem", color: "var(--text-dim)" }}>{aScore}–{bScore}</span>
           </div>
         ))}
       </div>
@@ -279,13 +279,13 @@ function RivalryTimeline({ rv, games, players }: {
           const loseName = aWon ? bName : aName;
           return (
             <div key={g.id} className="panel" style={{ padding: "6px 10px", display: "flex", alignItems: "center", gap: 8 }}>
-              <span className="font-mono" style={{ fontSize: "0.55rem", color: "var(--text-dim)", minWidth: 18 }}>#{idx + 1}</span>
-              <span className="font-mono" style={{ fontSize: "0.65rem", color: aWon ? "var(--win)" : "var(--lose)", flex: 1 }}>{winName}</span>
-              <span className="font-mono" style={{ fontSize: "0.6rem", color: "var(--text-dim)" }}>{ws.kills}K/{ws.deaths}D · KD {wKD}</span>
-              <span className="font-mono" style={{ fontSize: "0.55rem", color: "var(--accent)" }}>DEF</span>
-              <span className="font-mono" style={{ fontSize: "0.6rem", color: "var(--text-dim)" }}>{ls.kills}K/{ls.deaths}D · KD {lKD}</span>
-              <span className="font-mono" style={{ fontSize: "0.65rem", color: aWon ? "var(--lose)" : "var(--win)", flex: 1, textAlign: "right" }}>{loseName}</span>
-              <span className="font-mono" style={{ fontSize: "0.52rem", color: "var(--text-dim)", minWidth: 56, textAlign: "right" }}>
+              <span className="font-mono" style={{ fontSize: "0.67rem", color: "var(--text-dim)", minWidth: 18 }}>#{idx + 1}</span>
+              <span className="font-mono" style={{ fontSize: "0.75rem", color: aWon ? "var(--win)" : "var(--lose)", flex: 1 }}>{winName}</span>
+              <span className="font-mono" style={{ fontSize: "0.72rem", color: "var(--text-dim)" }}>{ws.kills}K/{ws.deaths}D · KD {wKD}</span>
+              <span className="font-mono" style={{ fontSize: "0.67rem", color: "var(--accent)" }}>DEF</span>
+              <span className="font-mono" style={{ fontSize: "0.72rem", color: "var(--text-dim)" }}>{ls.kills}K/{ls.deaths}D · KD {lKD}</span>
+              <span className="font-mono" style={{ fontSize: "0.75rem", color: aWon ? "var(--lose)" : "var(--win)", flex: 1, textAlign: "right" }}>{loseName}</span>
+              <span className="font-mono" style={{ fontSize: "0.65rem", color: "var(--text-dim)", minWidth: 56, textAlign: "right" }}>
                 {new Date(g.timestamp).toLocaleDateString()}
               </span>
             </div>
@@ -609,7 +609,7 @@ function StatInput({ label, stats, onChange }: {
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
         {fields.map(f => (
           <div key={f}>
-            <div style={{ fontSize: "0.58rem", color: "var(--text-dim)", fontFamily: "Share Tech Mono", letterSpacing: "0.1em", marginBottom: 2 }}>{f.toUpperCase()}</div>
+            <div style={{ fontSize: "0.70rem", color: "var(--text-dim)", fontFamily: "Share Tech Mono", letterSpacing: "0.1em", marginBottom: 2 }}>{f.toUpperCase()}</div>
             <input className="input" type="number" min="0" max="99" value={stats[f] || ""}
               onChange={e => onChange({ ...stats, [f]: parseInt(e.target.value) || 0 })}
               style={{ padding: "4px 8px", fontSize: "0.9rem" }} />
@@ -876,10 +876,10 @@ export default function Home() {
       <div style={{ marginBottom: 24 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
           <div className="live-indicator" />
-          <span className="font-mono" style={{ fontSize: "0.6rem", color: "var(--accent)", letterSpacing: "0.2em" }}>
+          <span className="font-mono" style={{ fontSize: "0.72rem", color: "var(--accent)", letterSpacing: "0.2em" }}>
             GRAPHELO // R6 CUSTOM 1v1
           </span>
-          <button onClick={toggleTheme} className="btn" style={{ marginLeft: "auto", padding: "1px 8px", fontSize: "0.6rem", letterSpacing: "0.12em" }}>
+          <button onClick={toggleTheme} className="btn" style={{ marginLeft: "auto", padding: "1px 8px", fontSize: "0.72rem", letterSpacing: "0.12em" }}>
             {theme === "dark" ? "◑ LIGHT" : "◑ DARK"}
           </button>
         </div>
@@ -888,14 +888,14 @@ export default function Home() {
           <h1 className="font-display" style={{ fontSize: "2rem", fontWeight: 700, color: "var(--text-bright)", letterSpacing: "0.05em" }}>
             GRAPH<span style={{ color: "var(--accent)" }}>ELO</span>
           </h1>
-          <span className="font-mono" style={{ fontSize: "0.65rem", color: "var(--text-dim)" }}>
+          <span className="font-mono" style={{ fontSize: "0.75rem", color: "var(--text-dim)" }}>
             {players.length} PLAYERS · {state.games.length} GAMES
           </span>
         </div>
       </div>
 
       {error && (
-        <div style={{ marginBottom: 14, padding: "7px 12px", border: "1px solid var(--lose)", color: "var(--lose)", fontSize: "0.78rem", fontFamily: "Share Tech Mono", display: "flex", justifyContent: "space-between" }}>
+        <div style={{ marginBottom: 14, padding: "7px 12px", border: "1px solid var(--lose)", color: "var(--lose)", fontSize: "0.86rem", fontFamily: "Share Tech Mono", display: "flex", justifyContent: "space-between" }}>
           <span>⚠ {error}</span>
           <button onClick={() => setError("")} style={{ background: "none", border: "none", color: "var(--text-dim)", cursor: "pointer" }}>×</button>
         </div>
@@ -915,25 +915,25 @@ export default function Home() {
         <div className="fade-in">
           <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8, flexWrap: "wrap" }}>
             <div className="section-label">ROUND ROBIN RANKING</div>
-            <span className="font-mono" style={{ fontSize: "0.6rem", color: "var(--text-dim)" }}>KATZ β=0.5 · 1000-MC</span>
+            <span className="font-mono" style={{ fontSize: "0.72rem", color: "var(--text-dim)" }}>KATZ β=0.5 · 1000-MC</span>
             {looCv && looCv.n >= 3 && (
-              <span className="font-mono" style={{ fontSize: "0.6rem", color: looCv.brier_skill > 0.1 ? "var(--win)" : "var(--text-dim)" }}>
+              <span className="font-mono" style={{ fontSize: "0.72rem", color: looCv.brier_skill > 0.1 ? "var(--win)" : "var(--text-dim)" }}>
                 LOO {Math.round(looCv.accuracy * 100)}% · BRIER {looCv.brier_score.toFixed(2)} · SKILL +{Math.round(looCv.brier_skill * 100)}%
               </span>
             )}
             {!looCv && predAccuracy && predAccuracy.total >= 3 && (
-              <span className="font-mono" style={{ fontSize: "0.6rem", color: "var(--text-dim)" }}>
+              <span className="font-mono" style={{ fontSize: "0.72rem", color: "var(--text-dim)" }}>
                 IN-SAMPLE {Math.round(predAccuracy.correct / predAccuracy.total * 100)}% ({predAccuracy.correct}/{predAccuracy.total})
               </span>
             )}
             {metaStability !== null && (
-              <span className="font-mono" style={{ fontSize: "0.6rem", color: metaStability > 0.7 ? "var(--win)" : metaStability > 0.4 ? "var(--neutral)" : "var(--lose)" }}>
+              <span className="font-mono" style={{ fontSize: "0.72rem", color: metaStability > 0.7 ? "var(--win)" : metaStability > 0.4 ? "var(--neutral)" : "var(--lose)" }}>
                 META {Math.round(metaStability * 100)}% {metaStability > 0.7 ? "STABLE" : metaStability > 0.4 ? "SHIFTING" : "VOLATILE"}
               </span>
             )}
             <div style={{ marginLeft: "auto", display: "flex", gap: 5, alignItems: "center" }}>
               {(["tour", "elo"] as const).map(s => (
-                <button key={s} className="btn" onClick={() => setRankSort(s)} style={{ padding: "2px 8px", fontSize: "0.62rem", background: rankSort === s ? "var(--accent)" : undefined, color: rankSort === s ? "#000" : undefined }}>
+                <button key={s} className="btn" onClick={() => setRankSort(s)} style={{ padding: "2px 8px", fontSize: "0.73rem", background: rankSort === s ? "var(--accent)" : undefined, color: rankSort === s ? "#000" : undefined }}>
                   {s === "tour" ? "CHAMP%" : "ELO"}
                 </button>
               ))}
@@ -945,7 +945,7 @@ export default function Home() {
             const parity = computeParityIndex(state, champCounts, 1000);
             return (
               <div style={{ display: "flex", gap: 16, marginBottom: 14, flexWrap: "wrap" }}>
-                <span className="font-mono" style={{ fontSize: "0.6rem", color: "var(--text-dim)" }}>
+                <span className="font-mono" style={{ fontSize: "0.72rem", color: "var(--text-dim)" }}>
                   PARITY <span style={{ color: parity.normalized_parity > 0.7 ? "var(--win)" : parity.normalized_parity > 0.4 ? "var(--neutral)" : "var(--lose)" }}>{Math.round(parity.normalized_parity * 100)}%</span>
                   {" · "}ELO SPREAD <span style={{ color: "var(--text-bright)" }}>±{Math.round(parity.elo_spread)}pts</span>
                   {skillGap && <> {" · "}FIELD <span style={{ color: skillGap.trend === "CONVERGING" ? "var(--win)" : skillGap.trend === "DIVERGING" ? "var(--lose)" : "var(--text-dim)" }}>{skillGap.trend} {skillGap.trend === "CONVERGING" ? "↓" : skillGap.trend === "DIVERGING" ? "↑" : "→"}</span></>}
@@ -960,7 +960,7 @@ export default function Home() {
                 <div className="section-label" style={{ marginBottom: 5, color: "var(--accent)" }}>CLOSEST MATCHUP</div>
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   <span className="player-name">{mostInteresting.a.display_name}</span>
-                  <span className="font-mono" style={{ fontSize: "0.72rem", color: "var(--text-dim)" }}>
+                  <span className="font-mono" style={{ fontSize: "0.82rem", color: "var(--text-dim)" }}>
                     {pct(mostInteresting.p, 1)} · {pct(1 - mostInteresting.p, 1)}
                   </span>
                   <span className="player-name">{mostInteresting.b.display_name}</span>
@@ -974,7 +974,7 @@ export default function Home() {
           )}
 
           {ranking.length === 0 || state.games.length === 0 ? (
-            <div style={{ color: "var(--text-dim)", fontSize: "0.85rem" }}>
+            <div style={{ color: "var(--text-dim)", fontSize: "0.92rem" }}>
               {players.length < 2 ? "Add at least 2 players and log a game." : "Log some games to generate a ranking."}
             </div>
           ) : (
@@ -985,7 +985,7 @@ export default function Home() {
                 return blurb ? (
                   <div className="panel" style={{ padding: "10px 14px", marginBottom: 10, borderColor: "var(--border2)" }}>
                     <div className="section-label" style={{ marginBottom: 5, color: "var(--accent)" }}>POWER RANKINGS</div>
-                    <p className="font-mono" style={{ fontSize: "0.72rem", color: "var(--text)", lineHeight: 1.65 }}>{blurb}</p>
+                    <p className="font-mono" style={{ fontSize: "0.82rem", color: "var(--text)", lineHeight: 1.65 }}>{blurb}</p>
                   </div>
                 ) : null;
               })()}
@@ -1008,7 +1008,7 @@ export default function Home() {
                     <div className="panel corner-tl" onClick={() => setSelectedPlayer(isSelected ? null : r.player_id)} style={{
                       display: "grid",
                       gridTemplateColumns: "28px 1fr 64px 72px 56px 64px 64px 72px",
-                      gap: 10, padding: "11px 12px", alignItems: "center",
+                      gap: 10, padding: "13px 14px", alignItems: "center",
                       cursor: "pointer",
                       borderColor: isSelected ? "var(--accent)" : isTop ? "var(--accent)" : undefined,
                     }}>
@@ -1019,13 +1019,13 @@ export default function Home() {
                         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                           <div className="player-name" style={{ color: isTop ? "var(--accent)" : undefined }}>{r.display_name}</div>
                           {streak.count > 0 && (
-                            <span className="font-mono" style={{ fontSize: "0.55rem", padding: "1px 4px", border: "1px solid", borderColor: streak.win ? "var(--win)" : "var(--lose)", color: streak.win ? "var(--win)" : "var(--lose)", lineHeight: 1.4, flexShrink: 0 }}>
+                            <span className="font-mono" style={{ fontSize: "0.67rem", padding: "1px 4px", border: "1px solid", borderColor: streak.win ? "var(--win)" : "var(--lose)", color: streak.win ? "var(--win)" : "var(--lose)", lineHeight: 1.4, flexShrink: 0 }}>
                               {streak.win ? "W" : "L"}{streak.count}
                             </span>
                           )}
                         </div>
                         {archetype && (
-                          <div className="font-mono" style={{ fontSize: "0.52rem", color: "var(--accent2)", letterSpacing: "0.1em", marginTop: 3 }}>
+                          <div className="font-mono" style={{ fontSize: "0.65rem", color: "var(--accent2)", letterSpacing: "0.1em", marginTop: 3 }}>
                             {archetype}
                           </div>
                         )}
@@ -1055,7 +1055,7 @@ export default function Home() {
                             if (!vel) return null;
                             const arrow = vel.slope > 5 ? "↑" : vel.slope < -5 ? "↓" : "→";
                             const color = vel.slope > 5 ? "var(--win)" : vel.slope < -5 ? "var(--lose)" : "var(--text-dim)";
-                            return <span className="font-mono" style={{ fontSize: "0.65rem", color, lineHeight: 1 }}>{arrow}</span>;
+                            return <span className="font-mono" style={{ fontSize: "0.75rem", color, lineHeight: 1 }}>{arrow}</span>;
                           })()}
                         </div>
                         <EloSparkline history={eloHistory[r.player_id] ?? []} />
@@ -1096,11 +1096,11 @@ export default function Home() {
                                   <div style={{ flex: 1, height: 4, background: "var(--surface2)", borderRadius: 2, overflow: "hidden" }}>
                                     <div style={{ height: "100%", width: pct(p), background: color, borderRadius: 2, transition: "width 0.3s" }} />
                                   </div>
-                                  <span className="font-mono" style={{ fontSize: "0.75rem", color, minWidth: 36, textAlign: "right" }}>{pct(p, 0)}</span>
+                                  <span className="font-mono" style={{ fontSize: "0.84rem", color, minWidth: 36, textAlign: "right" }}>{pct(p, 0)}</span>
                                   {(() => {
                                     const { aKills, bKills } = predictScore(state, r.player_id, opp.id, p);
                                     return (
-                                      <span className="font-mono" style={{ fontSize: "0.65rem", color: "var(--text-dim)", minWidth: 36, textAlign: "right" }}>
+                                      <span className="font-mono" style={{ fontSize: "0.75rem", color: "var(--text-dim)", minWidth: 36, textAlign: "right" }}>
                                         <span style={{ color: p >= 0.5 ? "var(--text-bright)" : "var(--text-dim)" }}>{aKills}</span>
                                         <span style={{ color: "var(--text-dim)" }}>–</span>
                                         <span style={{ color: p < 0.5 ? "var(--text-bright)" : "var(--text-dim)" }}>{bKills}</span>
@@ -1108,11 +1108,11 @@ export default function Home() {
                                     );
                                   })()}
                                   {hasGames && (
-                                    <span className="font-mono" style={{ fontSize: "0.62rem", color: "var(--text-dim)", minWidth: 40 }}>
+                                    <span className="font-mono" style={{ fontSize: "0.73rem", color: "var(--text-dim)", minWidth: 40 }}>
                                       <span style={{ color: "var(--win)" }}>{wins}W</span>–<span style={{ color: "var(--lose)" }}>{losses}L</span>
                                     </span>
                                   )}
-                                  {!hasGames && <span className="font-mono" style={{ fontSize: "0.6rem", color: "var(--text-dim)", minWidth: 40 }}>no games</span>}
+                                  {!hasGames && <span className="font-mono" style={{ fontSize: "0.72rem", color: "var(--text-dim)", minWidth: 40 }}>no games</span>}
                                 </div>
                               );
                             })}
@@ -1136,14 +1136,14 @@ export default function Home() {
                               <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px solid var(--border)" }}>
                                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
                                   <span className="section-label">MODEL ACCURACY ON YOUR GAMES</span>
-                                  <span className="font-mono" style={{ fontSize: "0.72rem", color: rateColor }}>{Math.round(rate * 100)}%</span>
-                                  <span className="font-mono" style={{ fontSize: "0.6rem", color: "var(--text-dim)" }}>({correct}/{total})</span>
+                                  <span className="font-mono" style={{ fontSize: "0.82rem", color: rateColor }}>{Math.round(rate * 100)}%</span>
+                                  <span className="font-mono" style={{ fontSize: "0.72rem", color: "var(--text-dim)" }}>({correct}/{total})</span>
                                 </div>
                                 <div style={{ height: 3, background: "var(--surface2)", borderRadius: 2, overflow: "hidden" }}>
                                   <div style={{ height: "100%", width: `${Math.round(rate * 100)}%`, background: rateColor, borderRadius: 2 }} />
                                 </div>
-                                {rate < 0.45 && <div className="font-mono" style={{ fontSize: "0.58rem", color: "var(--accent2)", marginTop: 4 }}>model consistently underestimates this player</div>}
-                                {rate > 0.75 && <div className="font-mono" style={{ fontSize: "0.58rem", color: "var(--text-dim)", marginTop: 4 }}>model reads this player well</div>}
+                                {rate < 0.45 && <div className="font-mono" style={{ fontSize: "0.70rem", color: "var(--accent2)", marginTop: 4 }}>model consistently underestimates this player</div>}
+                                {rate > 0.75 && <div className="font-mono" style={{ fontSize: "0.70rem", color: "var(--text-dim)", marginTop: 4 }}>model reads this player well</div>}
                               </div>
                             );
                           })()}
@@ -1164,24 +1164,24 @@ export default function Home() {
                                 <div>
                                   <div className="section-label" style={{ marginBottom: 3 }}>PAGERANK AUTHORITY</div>
                                   <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
-                                    <span className="font-mono" style={{ fontSize: "0.82rem", color: "var(--accent)" }}>{(prScore * 100).toFixed(2)}</span>
-                                    <span className="font-mono" style={{ fontSize: "0.62rem", color: "var(--text-dim)" }}>#{prRank + 1} authority</span>
+                                    <span className="font-mono" style={{ fontSize: "0.90rem", color: "var(--accent)" }}>{(prScore * 100).toFixed(2)}</span>
+                                    <span className="font-mono" style={{ fontSize: "0.73rem", color: "var(--text-dim)" }}>#{prRank + 1} authority</span>
                                   </div>
                                 </div>
                                 <div>
                                   <div className="section-label" style={{ marginBottom: 3 }}>DATA RELIABILITY</div>
                                   <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
-                                    <span className="font-mono" style={{ fontSize: "0.82rem", color: relColor }}>{relLabel}</span>
-                                    <span className="font-mono" style={{ fontSize: "0.62rem", color: "var(--text-dim)" }}>{Math.round(rel * 100)}%</span>
+                                    <span className="font-mono" style={{ fontSize: "0.90rem", color: relColor }}>{relLabel}</span>
+                                    <span className="font-mono" style={{ fontSize: "0.73rem", color: "var(--text-dim)" }}>{Math.round(rel * 100)}%</span>
                                   </div>
                                 </div>
                                 {bt !== undefined && btSe !== undefined && (
                                   <div>
                                     <div className="section-label" style={{ marginBottom: 3 }}>BRADLEY-TERRY</div>
                                     <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
-                                      <span className="font-mono" style={{ fontSize: "0.82rem", color: "var(--accent)" }}>{bt}</span>
-                                      <span className="font-mono" style={{ fontSize: "0.62rem", color: "var(--text-dim)" }}>±{Math.round(btSe)}</span>
-                                      {btDiverges && <span className="font-mono" style={{ fontSize: "0.58rem", color: "var(--neutral)", border: "1px solid var(--neutral)", padding: "0 3px" }}>DIVERGENT</span>}
+                                      <span className="font-mono" style={{ fontSize: "0.90rem", color: "var(--accent)" }}>{bt}</span>
+                                      <span className="font-mono" style={{ fontSize: "0.73rem", color: "var(--text-dim)" }}>±{Math.round(btSe)}</span>
+                                      {btDiverges && <span className="font-mono" style={{ fontSize: "0.70rem", color: "var(--neutral)", border: "1px solid var(--neutral)", padding: "0 3px" }}>DIVERGENT</span>}
                                     </div>
                                   </div>
                                 )}
@@ -1201,8 +1201,8 @@ export default function Home() {
                                 <div className="section-label" style={{ marginBottom: 4 }}>CEILING ESTIMATE</div>
                                 <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
                                   <span className="font-mono" style={{ fontSize: "0.88rem", color: "var(--accent)" }}>{est.ceiling}</span>
-                                  <span className="font-mono" style={{ fontSize: "0.62rem", color: "var(--text-dim)" }}>±{est.se}</span>
-                                  <span className="font-mono" style={{ fontSize: "0.6rem", color: est.plateaued ? "var(--neutral)" : "var(--win)" }}>
+                                  <span className="font-mono" style={{ fontSize: "0.73rem", color: "var(--text-dim)" }}>±{est.se}</span>
+                                  <span className="font-mono" style={{ fontSize: "0.72rem", color: est.plateaued ? "var(--neutral)" : "var(--win)" }}>
                                     {est.plateaued ? "PLATEAUED" : `+${est.gap_to_ceiling} gap`}
                                   </span>
                                 </div>
@@ -1218,10 +1218,10 @@ export default function Home() {
                                 {profile.nemesis && (
                                   <div>
                                     <div className="section-label" style={{ marginBottom: 3, color: "var(--lose)" }}>NEMESIS</div>
-                                    <span className="font-mono" style={{ fontSize: "0.75rem", color: "var(--lose)" }}>
+                                    <span className="font-mono" style={{ fontSize: "0.84rem", color: "var(--lose)" }}>
                                       {state.players[profile.nemesis.opponent_id]?.display_name ?? profile.nemesis.opponent_id}
                                     </span>
-                                    <span className="font-mono" style={{ fontSize: "0.6rem", color: "var(--text-dim)", marginLeft: 6 }}>
+                                    <span className="font-mono" style={{ fontSize: "0.72rem", color: "var(--text-dim)", marginLeft: 6 }}>
                                       {Math.round(profile.nemesis.actual_wr * 100)}% actual vs {Math.round(profile.nemesis.expected_wr * 100)}% expected
                                     </span>
                                   </div>
@@ -1229,10 +1229,10 @@ export default function Home() {
                                 {profile.victim && (
                                   <div>
                                     <div className="section-label" style={{ marginBottom: 3, color: "var(--win)" }}>VICTIM</div>
-                                    <span className="font-mono" style={{ fontSize: "0.75rem", color: "var(--win)" }}>
+                                    <span className="font-mono" style={{ fontSize: "0.84rem", color: "var(--win)" }}>
                                       {state.players[profile.victim.opponent_id]?.display_name ?? profile.victim.opponent_id}
                                     </span>
-                                    <span className="font-mono" style={{ fontSize: "0.6rem", color: "var(--text-dim)", marginLeft: 6 }}>
+                                    <span className="font-mono" style={{ fontSize: "0.72rem", color: "var(--text-dim)", marginLeft: 6 }}>
                                       {Math.round(profile.victim.actual_wr * 100)}% actual vs {Math.round(profile.victim.expected_wr * 100)}% expected
                                     </span>
                                   </div>
@@ -1279,16 +1279,16 @@ export default function Home() {
                             style={{ padding: "9px 14px", display: "flex", alignItems: "center", gap: 12, cursor: "pointer", borderColor: isOpen ? "var(--accent)" : undefined }}>
                             <span className="player-name" style={{ minWidth: 70 }}>{aName}</span>
                             <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 8 }}>
-                              <span className="font-mono" style={{ fontSize: "0.85rem", color: "var(--win)" }}>{rv.aWins}</span>
+                              <span className="font-mono" style={{ fontSize: "0.92rem", color: "var(--win)" }}>{rv.aWins}</span>
                               <div style={{ flex: 1, height: 4, background: "var(--surface2)", borderRadius: 2, overflow: "hidden" }}>
                                 <div style={{ height: "100%", width: `${(rv.aWins / rv.total) * 100}%`, background: "var(--accent)", borderRadius: 2 }} />
                               </div>
-                              <span className="font-mono" style={{ fontSize: "0.85rem", color: "var(--lose)" }}>{rv.bWins}</span>
+                              <span className="font-mono" style={{ fontSize: "0.92rem", color: "var(--lose)" }}>{rv.bWins}</span>
                             </div>
                             <span className="player-name" style={{ minWidth: 70, textAlign: "right" }}>{bName}</span>
                             <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", minWidth: 60 }}>
-                              <span className="font-mono" style={{ fontSize: "0.6rem", color: "var(--text-dim)" }}>{rv.total} GAMES</span>
-                              <span className="font-mono" style={{ fontSize: "0.6rem", color }}>{dominance < 0.15 ? "EVEN" : `${leader.toUpperCase()} LEADS`}</span>
+                              <span className="font-mono" style={{ fontSize: "0.72rem", color: "var(--text-dim)" }}>{rv.total} GAMES</span>
+                              <span className="font-mono" style={{ fontSize: "0.72rem", color }}>{dominance < 0.15 ? "EVEN" : `${leader.toUpperCase()} LEADS`}</span>
                             </div>
                           </div>
                           {isOpen && <RivalryTimeline rv={rv} games={state.games} players={state.players} />}
@@ -1311,7 +1311,7 @@ export default function Home() {
                 <div style={{ marginTop: 28 }}>
                   <div className="section-label" style={{ marginBottom: 10 }}>PAIRWISE WIN PROBABILITY MATRIX (row beats col)</div>
                   <div style={{ overflowX: "auto" }}>
-                    <table style={{ borderCollapse: "collapse", fontSize: "0.72rem", fontFamily: "Share Tech Mono" }}>
+                    <table style={{ borderCollapse: "collapse", fontSize: "0.82rem", fontFamily: "Share Tech Mono" }}>
                       <thead>
                         <tr>
                           <td style={{ padding: "4px 10px", color: "var(--text-dim)" }}></td>
@@ -1355,7 +1355,7 @@ export default function Home() {
         <div className="fade-in" style={{ maxWidth: 580 }}>
           <div className="section-label" style={{ marginBottom: 14 }}>LOG 1v1 GAME</div>
           {players.length < 2 && (
-            <div style={{ color: "var(--neutral)", fontSize: "0.82rem", marginBottom: 14, fontFamily: "Share Tech Mono" }}>⚠ Add at least 2 players first</div>
+            <div style={{ color: "var(--neutral)", fontSize: "0.90rem", marginBottom: 14, fontFamily: "Share Tech Mono" }}>⚠ Add at least 2 players first</div>
           )}
           <form onSubmit={logGame}>
             {/* Winner / Loser selectors */}
@@ -1380,13 +1380,13 @@ export default function Home() {
             {/* Score inputs */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 36px 1fr", gap: 12, alignItems: "end", marginBottom: 14 }}>
               <div>
-                <div style={{ fontSize: "0.58rem", color: "var(--text-dim)", fontFamily: "Share Tech Mono", letterSpacing: "0.1em", marginBottom: 2 }}>WINNER SCORE</div>
+                <div style={{ fontSize: "0.70rem", color: "var(--text-dim)", fontFamily: "Share Tech Mono", letterSpacing: "0.1em", marginBottom: 2 }}>WINNER SCORE</div>
                 <input className="input" type="number" min="0" max="99" value={scoreWinner}
                   onChange={e => setScoreWinner(e.target.value)} placeholder="e.g. 7" style={{ padding: "4px 8px", fontSize: "0.9rem" }} />
               </div>
               <div style={{ textAlign: "center", fontFamily: "Rajdhani", fontWeight: 700, color: "var(--text-dim)", paddingBottom: 10 }}>—</div>
               <div>
-                <div style={{ fontSize: "0.58rem", color: "var(--text-dim)", fontFamily: "Share Tech Mono", letterSpacing: "0.1em", marginBottom: 2 }}>LOSER SCORE</div>
+                <div style={{ fontSize: "0.70rem", color: "var(--text-dim)", fontFamily: "Share Tech Mono", letterSpacing: "0.1em", marginBottom: 2 }}>LOSER SCORE</div>
                 <input className="input" type="number" min="0" max="99" value={scoreLoser}
                   onChange={e => setScoreLoser(e.target.value)} placeholder="e.g. 3" style={{ padding: "4px 8px", fontSize: "0.9rem" }} />
               </div>
@@ -1407,7 +1407,7 @@ export default function Home() {
               <button type="submit" className="btn btn-primary" disabled={logging || !logWinner || !logLoser || players.length < 2}>
                 {logging ? "LOGGING..." : "LOG GAME"}
               </button>
-              {logMsg && <span className="font-mono" style={{ color: "var(--win)", fontSize: "0.78rem" }}>{logMsg}</span>}
+              {logMsg && <span className="font-mono" style={{ color: "var(--win)", fontSize: "0.86rem" }}>{logMsg}</span>}
             </div>
           </form>
         </div>
@@ -1447,7 +1447,7 @@ export default function Home() {
                 <div style={{ marginLeft: "auto", display: "flex", gap: 4 }}>
                   {(["closest", "elovalue", "uncertain"] as const).map(s => (
                     <button key={s} className="btn" onClick={() => setSuggestSort(s)}
-                      style={{ padding: "1px 7px", fontSize: "0.58rem", background: suggestSort === s ? "var(--accent)" : undefined, color: suggestSort === s ? "#000" : undefined }}>
+                      style={{ padding: "1px 7px", fontSize: "0.70rem", background: suggestSort === s ? "var(--accent)" : undefined, color: suggestSort === s ? "#000" : undefined }}>
                       {s === "closest" ? "CLOSEST" : s === "elovalue" ? "ELO VALUE" : "UNCERTAIN"}
                     </button>
                   ))}
@@ -1478,17 +1478,17 @@ export default function Home() {
                         onClick={() => { setPredB(player.id); setPrediction(pred); }}>
                         <span className="player-name" style={{ flex: 1 }}>{player.display_name}</span>
                         {urgency && urgency.prediction_shift >= 0.1 && (
-                          <span className="font-mono" style={{ fontSize: "0.55rem", color: "var(--neutral)", border: "1px solid var(--neutral)", padding: "0 3px" }}>
+                          <span className="font-mono" style={{ fontSize: "0.67rem", color: "var(--neutral)", border: "1px solid var(--neutral)", padding: "0 3px" }}>
                             REMATCH ↑{Math.round(urgency.prediction_shift * 100)}%
                           </span>
                         )}
                         {alert && (
-                          <span className="font-mono" style={{ fontSize: "0.55rem", color: "var(--neutral)", border: "1px solid var(--neutral)", padding: "0 3px" }}>
+                          <span className="font-mono" style={{ fontSize: "0.67rem", color: "var(--neutral)", border: "1px solid var(--neutral)", padding: "0 3px" }}>
                             ⚡ {alert.alert_level}
                           </span>
                         )}
-                        <span className="font-mono" style={{ fontSize: "0.75rem", color, marginRight: 4 }}>{pct(pred.p_a_wins, 1)}</span>
-                        <span className="font-mono" style={{ fontSize: "0.6rem", color: "var(--text-dim)" }}>
+                        <span className="font-mono" style={{ fontSize: "0.84rem", color, marginRight: 4 }}>{pct(pred.p_a_wins, 1)}</span>
+                        <span className="font-mono" style={{ fontSize: "0.72rem", color: "var(--text-dim)" }}>
                           {pred.p_a_wins > 0.6 ? "FAVORED" : pred.p_a_wins < 0.4 ? "UNDERDOG" : "EVEN"}
                         </span>
                       </div>
@@ -1525,23 +1525,23 @@ export default function Home() {
                         <div className="player-name">{aName}</div>
                         <div style={{ display: "flex", alignItems: "baseline", gap: 5 }}>
                           <span className="rating-value" style={{ fontSize: "1.6rem" }}>{pct(pA, 1)}</span>
-                          <span className="font-mono" style={{ fontSize: "0.68rem", color: "var(--text-dim)", letterSpacing: "0.02em" }}>
+                          <span className="font-mono" style={{ fontSize: "0.78rem", color: "var(--text-dim)", letterSpacing: "0.02em" }}>
                             ({Math.round(ciA[0] * 100)}–{Math.round(ciA[1] * 100)}%)
                           </span>
                         </div>
                       </div>
                       {h2h.length > 0 && (
                         <div style={{ textAlign: "center", paddingBottom: 2 }}>
-                          <span className="font-mono" style={{ fontSize: "0.72rem", color: "var(--text-dim)" }}>RECORD </span>
-                          <span className="font-mono" style={{ fontSize: "0.85rem", color: "var(--win)" }}>{aWins}</span>
-                          <span className="font-mono" style={{ fontSize: "0.72rem", color: "var(--text-dim)" }}> — </span>
-                          <span className="font-mono" style={{ fontSize: "0.85rem", color: "var(--lose)" }}>{bWins}</span>
+                          <span className="font-mono" style={{ fontSize: "0.82rem", color: "var(--text-dim)" }}>RECORD </span>
+                          <span className="font-mono" style={{ fontSize: "0.92rem", color: "var(--win)" }}>{aWins}</span>
+                          <span className="font-mono" style={{ fontSize: "0.82rem", color: "var(--text-dim)" }}> — </span>
+                          <span className="font-mono" style={{ fontSize: "0.92rem", color: "var(--lose)" }}>{bWins}</span>
                         </div>
                       )}
                       <div style={{ textAlign: "right" }}>
                         <div className="player-name">{bName}</div>
                         <div style={{ display: "flex", alignItems: "baseline", gap: 5, justifyContent: "flex-end" }}>
-                          <span className="font-mono" style={{ fontSize: "0.68rem", color: "var(--text-dim)", letterSpacing: "0.02em" }}>
+                          <span className="font-mono" style={{ fontSize: "0.78rem", color: "var(--text-dim)", letterSpacing: "0.02em" }}>
                             ({Math.round(ciB[0] * 100)}–{Math.round(ciB[1] * 100)}%)
                           </span>
                           <span className="rating-value" style={{ fontSize: "1.6rem", color: pB > pA ? "var(--accent)" : "var(--lose)" }}>{pct(pB, 1)}</span>
@@ -1595,13 +1595,13 @@ export default function Home() {
                             const mName = state.players[playerId]?.display_name ?? playerId;
                             return (
                               <div key={playerId} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                                <span className="font-mono" style={{ fontSize: "0.62rem", color: "var(--text-dim)", minWidth: 120 }}>
+                                <span className="font-mono" style={{ fontSize: "0.73rem", color: "var(--text-dim)", minWidth: 120 }}>
                                   {aName} → {mName} → {bName}
                                 </span>
                                 <div style={{ flex: 1, height: 5, background: "var(--surface2)", borderRadius: 2, overflow: "hidden" }}>
                                   <div style={{ height: "100%", width: `${total > 0 ? Math.round((mass / total) * 100) : 0}%`, background: "var(--accent)", borderRadius: 2 }} />
                                 </div>
-                                <span className="font-mono" style={{ fontSize: "0.58rem", color: "var(--text-dim)", minWidth: 32, textAlign: "right" }}>
+                                <span className="font-mono" style={{ fontSize: "0.70rem", color: "var(--text-dim)", minWidth: 32, textAlign: "right" }}>
                                   {(mass * 100).toFixed(1)}
                                 </span>
                               </div>
@@ -1618,13 +1618,13 @@ export default function Home() {
                     const underdogName = state.players[alert.underdog]?.display_name ?? alert.underdog;
                     return (
                       <div style={{ marginTop: 12, padding: "8px 10px", border: "1px solid var(--neutral)", color: "var(--neutral)" }}>
-                        <div className="font-mono" style={{ fontSize: "0.62rem", marginBottom: 2 }}>
+                        <div className="font-mono" style={{ fontSize: "0.73rem", marginBottom: 2 }}>
                           ⚡ UPSET ALERT ({alert.alert_level})
                         </div>
-                        <div className="font-mono" style={{ fontSize: "0.58rem", color: "var(--text-dim)" }}>
+                        <div className="font-mono" style={{ fontSize: "0.70rem", color: "var(--text-dim)" }}>
                           Katz: {pct(alert.elo_win_prob, 1)} · Form: {pct(alert.form_win_prob, 1)} · Δ{Math.round(alert.divergence * 100)}%
                         </div>
-                        <div className="font-mono" style={{ fontSize: "0.58rem", color: "var(--text-dim)" }}>
+                        <div className="font-mono" style={{ fontSize: "0.70rem", color: "var(--text-dim)" }}>
                           {underdogName}&apos;s form rating diverges from model prediction
                         </div>
                       </div>
@@ -1637,7 +1637,7 @@ export default function Home() {
                     if (!urg || urg.prediction_shift < 0.1) return null;
                     return (
                       <div style={{ marginTop: 8, padding: "6px 10px", border: "1px solid var(--border)" }}>
-                        <div className="font-mono" style={{ fontSize: "0.58rem", color: "var(--text-dim)" }}>
+                        <div className="font-mono" style={{ fontSize: "0.70rem", color: "var(--text-dim)" }}>
                           REMATCH CONTEXT · {urg.days_since}d ago · prediction shift +{Math.round(urg.prediction_shift * 100)}% · {urg.direction}
                         </div>
                       </div>
@@ -1645,7 +1645,7 @@ export default function Home() {
                   })()}
                   {/* Compact sim metadata — model prior shown as diagnostic input, not headline */}
                   <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px solid var(--border)" }}>
-                    <div className="font-mono" style={{ fontSize: "0.6rem", color: "var(--text-dim)", display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+                    <div className="font-mono" style={{ fontSize: "0.72rem", color: "var(--text-dim)", display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
                       <span>{simWins !== undefined ? `${simWins}/1000 runs` : "no sim data"}</span>
                       <span style={{ color: "var(--border2)" }}>·</span>
                       {h2h.length > 0
@@ -1679,14 +1679,14 @@ export default function Home() {
                 ? `· ${winsGames.length}W ${lossesGames.length}L`
                 : `(${state.games.length})`}
             </div>
-            <select className="input" value={historyFilter} onChange={e => setHistoryFilter(e.target.value)} style={{ maxWidth: 180, padding: "3px 8px", fontSize: "0.75rem" }}>
+            <select className="input" value={historyFilter} onChange={e => setHistoryFilter(e.target.value)} style={{ maxWidth: 180, padding: "3px 8px", fontSize: "0.84rem" }}>
               <option value="">all players</option>
               {players.map(p => <option key={p.id} value={p.id}>{p.display_name}</option>)}
             </select>
             {historyFilter && <button className="btn" style={{ padding: "2px 8px", fontSize: "0.7rem" }} onClick={() => setHistoryFilter("")}>clear</button>}
           </div>
 
-          {filteredGames.length === 0 && <div style={{ color: "var(--text-dim)", fontSize: "0.85rem" }}>{historyFilter ? "No games for this player." : "No games logged yet."}</div>}
+          {filteredGames.length === 0 && <div style={{ color: "var(--text-dim)", fontSize: "0.92rem" }}>{historyFilter ? "No games for this player." : "No games logged yet."}</div>}
 
           {(() => {
             const gameCard = (g: typeof state.games[0]) => {
@@ -1701,30 +1701,30 @@ export default function Home() {
                   <div style={{ display: "flex", alignItems: "center" }}>
                     <div style={{ flex: 1 }}>
                       <span className="player-name" style={{ color: "var(--win)" }}>{w?.display_name ?? g.winner_id}</span>
-                      <div className="font-mono" style={{ fontSize: "0.65rem", color: "var(--text-dim)", marginTop: 2 }}>
+                      <div className="font-mono" style={{ fontSize: "0.75rem", color: "var(--text-dim)", marginTop: 2 }}>
                         {ws.kills}K {ws.deaths}D · KD {wKD}
                       </div>
                     </div>
                     <div style={{ padding: "0 14px", textAlign: "center" }}>
-                      <div className="font-mono" style={{ fontSize: "0.6rem", color: "var(--accent)" }}>DEF</div>
+                      <div className="font-mono" style={{ fontSize: "0.72rem", color: "var(--accent)" }}>DEF</div>
                       {upsetMap[g.id] && (
-                        <div className="font-mono" style={{ fontSize: "0.52rem", color: "var(--neutral)", border: "1px solid var(--neutral)", padding: "0 3px", marginTop: 2, lineHeight: 1.5 }}>UPSET</div>
+                        <div className="font-mono" style={{ fontSize: "0.65rem", color: "var(--neutral)", border: "1px solid var(--neutral)", padding: "0 3px", marginTop: 2, lineHeight: 1.5 }}>UPSET</div>
                       )}
                       {revengeMap[g.id] && (
-                        <div className="font-mono" style={{ fontSize: "0.52rem", color: "var(--accent2)", border: "1px solid var(--accent2)", padding: "0 3px", marginTop: 2, lineHeight: 1.5 }}>REVENGE</div>
+                        <div className="font-mono" style={{ fontSize: "0.65rem", color: "var(--accent2)", border: "1px solid var(--accent2)", padding: "0 3px", marginTop: 2, lineHeight: 1.5 }}>REVENGE</div>
                       )}
-                      <div style={{ fontSize: "0.65rem", color: "var(--text-dim)", fontFamily: "Share Tech Mono", marginTop: 2 }}>
+                      <div style={{ fontSize: "0.75rem", color: "var(--text-dim)", fontFamily: "Share Tech Mono", marginTop: 2 }}>
                         {new Date(g.timestamp).toLocaleDateString()}
                       </div>
                     </div>
                     <div style={{ flex: 1, textAlign: "right" }}>
                       <span className="player-name" style={{ color: "var(--lose)" }}>{l?.display_name ?? g.loser_id}</span>
-                      <div className="font-mono" style={{ fontSize: "0.65rem", color: "var(--text-dim)", marginTop: 2 }}>
+                      <div className="font-mono" style={{ fontSize: "0.75rem", color: "var(--text-dim)", marginTop: 2 }}>
                         KD {lKD} · {ls.deaths}D {ls.kills}K
                       </div>
                     </div>
                     <button onClick={() => handleDeleteGame(g.id)}
-                      style={{ marginLeft: 12, background: "none", border: "none", color: "var(--text-dim)", cursor: "pointer", fontSize: "0.85rem", lineHeight: 1, padding: "2px 4px" }}
+                      style={{ marginLeft: 12, background: "none", border: "none", color: "var(--text-dim)", cursor: "pointer", fontSize: "0.92rem", lineHeight: 1, padding: "2px 4px" }}
                       title="Delete game">✕</button>
                   </div>
                 </div>
@@ -1765,7 +1765,7 @@ export default function Home() {
                               <div style={{ display: "flex", alignItems: "baseline", gap: 4 }}>
                                 <span className="font-mono" style={{ fontSize: "0.9rem", color: "var(--text-bright)" }}>{fmt(r)}</span>
                                 <span className="font-mono" style={{ fontSize: "0.7rem", color: a.col }}>{a.sym}</span>
-                                <span className="font-mono" style={{ fontSize: "0.65rem", color: "var(--text-dim)" }}>{fmt(o)}</span>
+                                <span className="font-mono" style={{ fontSize: "0.75rem", color: "var(--text-dim)" }}>{fmt(o)}</span>
                               </div>
                             </div>
                           ))}
@@ -1781,7 +1781,7 @@ export default function Home() {
                           <div className="section-label" style={{ marginBottom: 6, color: "var(--lose)" }}>NEMESIS — never beaten</div>
                           <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                             {nemeses.map(id => (
-                              <span key={id} className="font-mono" style={{ fontSize: "0.72rem", color: "var(--lose)", padding: "2px 7px", border: "1px solid var(--lose)" }}>
+                              <span key={id} className="font-mono" style={{ fontSize: "0.82rem", color: "var(--lose)", padding: "2px 7px", border: "1px solid var(--lose)" }}>
                                 {state.players[id]?.display_name ?? id}
                               </span>
                             ))}
@@ -1793,7 +1793,7 @@ export default function Home() {
                           <div className="section-label" style={{ marginBottom: 6, color: "var(--win)" }}>DOMINATES — never lost to</div>
                           <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                             {dominates.map(id => (
-                              <span key={id} className="font-mono" style={{ fontSize: "0.72rem", color: "var(--win)", padding: "2px 7px", border: "1px solid var(--win)" }}>
+                              <span key={id} className="font-mono" style={{ fontSize: "0.82rem", color: "var(--win)", padding: "2px 7px", border: "1px solid var(--win)" }}>
                                 {state.players[id]?.display_name ?? id}
                               </span>
                             ))}
@@ -1841,7 +1841,7 @@ export default function Home() {
                     <div key={si}>
                       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
                         <span className="section-label">{label}</span>
-                        <span className="font-mono" style={{ fontSize: "0.6rem", color: "var(--text-dim)" }}>·  {session.length} {session.length === 1 ? "GAME" : "GAMES"}</span>
+                        <span className="font-mono" style={{ fontSize: "0.72rem", color: "var(--text-dim)" }}>·  {session.length} {session.length === 1 ? "GAME" : "GAMES"}</span>
                         <div style={{ flex: 1, height: 1, background: "var(--border)" }} />
                       </div>
                       <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
@@ -1868,7 +1868,7 @@ export default function Home() {
           </form>
           <div className="section-label" style={{ marginBottom: 8 }}>ROSTER ({players.length})</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
-            {players.length === 0 && <div style={{ color: "var(--text-dim)", fontSize: "0.82rem" }}>No players yet.</div>}
+            {players.length === 0 && <div style={{ color: "var(--text-dim)", fontSize: "0.90rem" }}>No players yet.</div>}
             {players.map(p => {
               const r = ranking.find(x => x.player_id === p.id);
               const sv = r?.stat_vec;
@@ -1879,14 +1879,14 @@ export default function Home() {
                   <div>
                     <div className="player-name">{p.display_name}</div>
                     {sv && sv.games_played > 0 && (
-                      <div className="font-mono" style={{ fontSize: "0.62rem", color: "var(--text-dim)", marginTop: 2 }}>
+                      <div className="font-mono" style={{ fontSize: "0.73rem", color: "var(--text-dim)", marginTop: 2 }}>
                         KD {fmt(sv.kd)} · KPR {fmt(sv.kpr, 1)} · <span style={{ color: "var(--win)" }}>{wins}W</span>–<span style={{ color: "var(--lose)" }}>{losses}L</span>
                       </div>
                     )}
                   </div>
                   <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                     {sv && sv.games_played > 0 && (
-                      <button className="btn" style={{ padding: "2px 8px", fontSize: "0.65rem" }}
+                      <button className="btn" style={{ padding: "2px 8px", fontSize: "0.75rem" }}
                         onClick={() => { setHistoryFilter(p.id); setTab("history"); }}>
                         HISTORY
                       </button>
@@ -1894,18 +1894,18 @@ export default function Home() {
                     {r && (
                       <div style={{ textAlign: "right" }}>
                         <div className="rating-value" style={{ fontSize: "0.9rem" }}>{pct(r.tournament_win_pct, 1)}</div>
-                        <div style={{ fontSize: "0.6rem", color: "var(--text-dim)", fontFamily: "Share Tech Mono" }}>CHAMP%</div>
+                        <div style={{ fontSize: "0.72rem", color: "var(--text-dim)", fontFamily: "Share Tech Mono" }}>CHAMP%</div>
                       </div>
                     )}
                     <button onClick={() => handleDeletePlayer(p.id)}
-                      style={{ background: "none", border: "none", color: "var(--text-dim)", cursor: "pointer", fontSize: "0.85rem", padding: "2px 4px" }}
+                      style={{ background: "none", border: "none", color: "var(--text-dim)", cursor: "pointer", fontSize: "0.92rem", padding: "2px 4px" }}
                       title="Delete player">✕</button>
                   </div>
                 </div>
               );
             })}
           </div>
-          <div style={{ marginTop: 16, padding: "10px 12px", border: "1px dashed var(--border)", fontSize: "0.65rem", color: "var(--text-dim)", fontFamily: "Share Tech Mono", lineHeight: 1.6 }}>
+          <div style={{ marginTop: 16, padding: "10px 12px", border: "1px dashed var(--border)", fontSize: "0.75rem", color: "var(--text-dim)", fontFamily: "Share Tech Mono", lineHeight: 1.6 }}>
             API HOOK READY — swap computeStatVector() in lib/graph-engine.ts<br />
             with r6data.com fetch to pull ranked stats automatically.
           </div>
@@ -1926,27 +1926,27 @@ export default function Home() {
                   <div>
                     <div className="section-label" style={{ marginBottom: 2 }}>LOO ACCURACY</div>
                     <span className="font-mono" style={{ fontSize: "0.9rem", color: looCv.accuracy > 0.6 ? "var(--win)" : "var(--text-bright)" }}>{Math.round(looCv.accuracy * 100)}%</span>
-                    <span className="font-mono" style={{ fontSize: "0.6rem", color: "var(--text-dim)", marginLeft: 6 }}>({looCv.n} predictions)</span>
+                    <span className="font-mono" style={{ fontSize: "0.72rem", color: "var(--text-dim)", marginLeft: 6 }}>({looCv.n} predictions)</span>
                   </div>
                   <div>
                     <div className="section-label" style={{ marginBottom: 2 }}>LOO BRIER</div>
                     <span className="font-mono" style={{ fontSize: "0.9rem", color: "var(--text-bright)" }}>{looCv.brier_score.toFixed(3)}</span>
-                    <span className="font-mono" style={{ fontSize: "0.6rem", color: "var(--text-dim)", marginLeft: 6 }}>random=0.250</span>
+                    <span className="font-mono" style={{ fontSize: "0.72rem", color: "var(--text-dim)", marginLeft: 6 }}>random=0.250</span>
                   </div>
                   <div>
                     <div className="section-label" style={{ marginBottom: 2 }}>BRIER SKILL</div>
                     <span className="font-mono" style={{ fontSize: "0.9rem", color: looCv.brier_skill > 0.05 ? "var(--win)" : "var(--lose)" }}>+{Math.round(looCv.brier_skill * 100)}%</span>
-                    <span className="font-mono" style={{ fontSize: "0.6rem", color: "var(--text-dim)", marginLeft: 6 }}>vs random</span>
+                    <span className="font-mono" style={{ fontSize: "0.72rem", color: "var(--text-dim)", marginLeft: 6 }}>vs random</span>
                   </div>
                   <div>
                     <div className="section-label" style={{ marginBottom: 2 }}>IN-SAMPLE</div>
                     <span className="font-mono" style={{ fontSize: "0.9rem", color: "var(--text-dim)" }}>{Math.round(looCv.in_sample_accuracy * 100)}%</span>
-                    <span className="font-mono" style={{ fontSize: "0.58rem", color: "var(--text-dim)", marginLeft: 6 }}>← optimistic</span>
+                    <span className="font-mono" style={{ fontSize: "0.70rem", color: "var(--text-dim)", marginLeft: 6 }}>← optimistic</span>
                   </div>
                 </div>
               </div>
             ) : (
-              <div className="font-mono" style={{ fontSize: "0.72rem", color: "var(--text-dim)" }}>Need ≥4 games for LOO validation.</div>
+              <div className="font-mono" style={{ fontSize: "0.82rem", color: "var(--text-dim)" }}>Need ≥4 games for LOO validation.</div>
             )}
           </div>
 
@@ -1982,12 +1982,12 @@ export default function Home() {
                     const diff = Math.abs(i - eloRankIdx);
                     return (
                       <div key={id} style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                        <span className="font-mono" style={{ fontSize: "0.62rem", color: "var(--text-dim)", minWidth: 18 }}>#{i + 1}</span>
+                        <span className="font-mono" style={{ fontSize: "0.73rem", color: "var(--text-dim)", minWidth: 18 }}>#{i + 1}</span>
                         <span className="player-name" style={{ minWidth: 100 }}>{state.players[id]?.display_name ?? id}</span>
-                        <span className="font-mono" style={{ fontSize: "0.82rem", color: "var(--accent)" }}>{btRating}</span>
-                        <span className="font-mono" style={{ fontSize: "0.6rem", color: "var(--text-dim)" }}>±{Math.round(se)}</span>
+                        <span className="font-mono" style={{ fontSize: "0.90rem", color: "var(--accent)" }}>{btRating}</span>
+                        <span className="font-mono" style={{ fontSize: "0.72rem", color: "var(--text-dim)" }}>±{Math.round(se)}</span>
                         {diff >= 2 && (
-                          <span className="font-mono" style={{ fontSize: "0.55rem", color: "var(--neutral)", border: "1px solid var(--neutral)", padding: "0 3px" }}>
+                          <span className="font-mono" style={{ fontSize: "0.67rem", color: "var(--neutral)", border: "1px solid var(--neutral)", padding: "0 3px" }}>
                             ELO #{eloRankIdx + 1}
                           </span>
                         )}
@@ -2015,12 +2015,12 @@ export default function Home() {
                   <div>
                     <div className="section-label" style={{ marginBottom: 2 }}>ELO SPREAD</div>
                     <span className="font-mono" style={{ fontSize: "0.9rem", color: "var(--text-bright)" }}>±{Math.round(parity.elo_spread)}</span>
-                    <span className="font-mono" style={{ fontSize: "0.6rem", color: "var(--text-dim)", marginLeft: 6 }}>pts std dev</span>
+                    <span className="font-mono" style={{ fontSize: "0.72rem", color: "var(--text-dim)", marginLeft: 6 }}>pts std dev</span>
                   </div>
                   <div>
                     <div className="section-label" style={{ marginBottom: 2 }}>COMPETITIVE ENTROPY</div>
                     <span className="font-mono" style={{ fontSize: "0.9rem", color: "var(--text-bright)" }}>{parity.entropy.toFixed(2)}</span>
-                    <span className="font-mono" style={{ fontSize: "0.6rem", color: "var(--text-dim)", marginLeft: 6 }}>/ {parity.max_entropy.toFixed(2)} max</span>
+                    <span className="font-mono" style={{ fontSize: "0.72rem", color: "var(--text-dim)", marginLeft: 6 }}>/ {parity.max_entropy.toFixed(2)} max</span>
                   </div>
                   {skillGap && (
                     <div>
@@ -2028,7 +2028,7 @@ export default function Home() {
                       <span className="font-mono" style={{ fontSize: "0.9rem", color: skillGap.trend === "CONVERGING" ? "var(--win)" : skillGap.trend === "DIVERGING" ? "var(--lose)" : "var(--text-dim)" }}>
                         {skillGap.trend}
                       </span>
-                      <span className="font-mono" style={{ fontSize: "0.6rem", color: "var(--text-dim)", marginLeft: 6 }}>
+                      <span className="font-mono" style={{ fontSize: "0.72rem", color: "var(--text-dim)", marginLeft: 6 }}>
                         {skillGap.slope > 0 ? "+" : ""}{skillGap.slope} pts/game
                       </span>
                     </div>
@@ -2049,7 +2049,7 @@ export default function Home() {
                     <span className="font-mono" style={{ fontSize: "0.9rem", color: cycleAnalysis.transitivity_rate > 0.7 ? "var(--win)" : "var(--neutral)" }}>
                       {Math.round(cycleAnalysis.transitivity_rate * 100)}%
                     </span>
-                    <span className="font-mono" style={{ fontSize: "0.6rem", color: "var(--text-dim)", marginLeft: 6 }}>rankings are this transitive</span>
+                    <span className="font-mono" style={{ fontSize: "0.72rem", color: "var(--text-dim)", marginLeft: 6 }}>rankings are this transitive</span>
                   </div>
                   <div>
                     <div className="section-label" style={{ marginBottom: 2 }}>3-CYCLES FOUND</div>
@@ -2066,11 +2066,11 @@ export default function Home() {
                         <div key={idx} className="panel" style={{ padding: "6px 10px" }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                             {cy.players.map((id, i) => (
-                              <span key={id} className="font-mono" style={{ fontSize: "0.68rem", color: "var(--text-bright)" }}>
+                              <span key={id} className="font-mono" style={{ fontSize: "0.78rem", color: "var(--text-bright)" }}>
                                 {state.players[id]?.display_name ?? id}{i < 2 ? " →" : ""}
                               </span>
                             ))}
-                            <span className="font-mono" style={{ fontSize: "0.58rem", color: "var(--text-dim)", marginLeft: "auto" }}>
+                            <span className="font-mono" style={{ fontSize: "0.70rem", color: "var(--text-dim)", marginLeft: "auto" }}>
                               → {cy.players[0] ? (state.players[cy.players[0]]?.display_name ?? cy.players[0]) : ""} · strength {cy.strength.toFixed(2)}
                             </span>
                           </div>
@@ -2080,7 +2080,7 @@ export default function Home() {
                   </>
                 )}
                 {cycleAnalysis.total_triples === 0 && (
-                  <div className="font-mono" style={{ fontSize: "0.72rem", color: "var(--text-dim)" }}>
+                  <div className="font-mono" style={{ fontSize: "0.82rem", color: "var(--text-dim)" }}>
                     Need ≥2 games per pair to detect cycles.
                   </div>
                 )}
@@ -2091,14 +2091,15 @@ export default function Home() {
       )}
 
       <div style={{ marginTop: 36, paddingTop: 14, borderTop: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: 8 }}>
-        <div className="font-mono" style={{ fontSize: "0.58rem", color: "var(--text-dim)", letterSpacing: "0.1em" }}>
+        <div className="font-mono" style={{ fontSize: "0.70rem", color: "var(--text-dim)", letterSpacing: "0.1em" }}>
           GRAPHELO v3 · KATZ GRAPH DIFFUSION β=0.5 · τ=90d · 1000-TOURNAMENT MONTE CARLO
         </div>
         <a href="https://eloboard.vercel.app/" target="_blank" rel="noopener noreferrer"
-          className="font-mono" style={{ fontSize: "0.58rem", color: "var(--accent)", letterSpacing: "0.1em", textDecoration: "none", opacity: 0.8 }}>
+          className="font-mono" style={{ fontSize: "0.70rem", color: "var(--accent)", letterSpacing: "0.1em", textDecoration: "none", opacity: 0.8 }}>
           ELOBOARD ↗
         </a>
       </div>
     </div>
   );
 }
+

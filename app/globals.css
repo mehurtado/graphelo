@@ -5,26 +5,25 @@
 @tailwind utilities;
 
 :root {
-  --bg: #080c10;
-  --surface: #0d1318;
-  --surface2: #111820;
-  --border: #1e2d3d;
-  --border2: #2a3f52;
-  --accent: #00c8ff;
-  --accent2: #ff6b35;
-  --accent3: #39ff14;
-  --text: #c8d8e8;
-  --text-dim: #5a7a8a;
-  --text-bright: #e8f4ff;
-  --win: #39ff14;
-  --lose: #ff3a3a;
-  --neutral: #ffcc00;
+  --bg:          #0b1220;
+  --surface:     #111e2e;
+  --surface2:    #172234;
+  --border:      #243650;
+  --border2:     #304a68;
+  --accent:      #00c8ff;
+  --accent2:     #ff6b35;
+  --accent3:     #39ff14;
+  --text:        #ccdaea;
+  --text-dim:    #6b8da0;
+  --text-bright: #eaf4ff;
+  --win:         #39ff14;
+  --lose:        #ff4444;
+  --neutral:     #ffcc00;
 }
 
 body.light {
   background: #f0f4f8;
 }
-
 body.light::before { display: none; }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -33,12 +32,14 @@ body {
   background: var(--bg);
   color: var(--text);
   font-family: 'Barlow', sans-serif;
-  font-weight: 300;
+  font-weight: 400;
+  font-size: 15px;
+  line-height: 1.5;
   min-height: 100vh;
   overflow-x: hidden;
 }
 
-/* Scanline overlay */
+/* Very subtle scanline — just texture, not distraction */
 body::before {
   content: '';
   position: fixed;
@@ -46,20 +47,21 @@ body::before {
   background: repeating-linear-gradient(
     0deg,
     transparent,
-    transparent 2px,
-    rgba(0, 200, 255, 0.015) 2px,
-    rgba(0, 200, 255, 0.015) 4px
+    transparent 3px,
+    rgba(0, 200, 255, 0.008) 3px,
+    rgba(0, 200, 255, 0.008) 6px
   );
   pointer-events: none;
   z-index: 9999;
 }
 
 .font-display { font-family: 'Rajdhani', sans-serif; }
-.font-mono { font-family: 'Share Tech Mono', monospace; }
+.font-mono    { font-family: 'Share Tech Mono', monospace; }
 
 .panel {
   background: var(--surface);
   border: 1px solid var(--border);
+  border-radius: 4px;
   position: relative;
 }
 
@@ -67,8 +69,9 @@ body::before {
   content: '';
   position: absolute;
   top: 0; left: 0;
-  width: 40px; height: 2px;
+  width: 32px; height: 2px;
   background: var(--accent);
+  border-radius: 2px 0 0 0;
 }
 
 .panel-accent2::before { background: var(--accent2); }
@@ -77,22 +80,23 @@ body::before {
 .btn {
   font-family: 'Rajdhani', sans-serif;
   font-weight: 600;
-  font-size: 0.85rem;
-  letter-spacing: 0.08em;
+  font-size: 0.875rem;
+  letter-spacing: 0.07em;
   text-transform: uppercase;
-  padding: 0.5rem 1.2rem;
+  padding: 0.45rem 1.1rem;
   border: 1px solid var(--accent);
+  border-radius: 3px;
   color: var(--accent);
   background: transparent;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: background 0.15s, box-shadow 0.15s;
   position: relative;
   overflow: hidden;
 }
 
 .btn:hover {
   background: rgba(0, 200, 255, 0.1);
-  box-shadow: 0 0 12px rgba(0, 200, 255, 0.3);
+  box-shadow: 0 0 10px rgba(0, 200, 255, 0.25);
 }
 
 .btn:active { transform: scale(0.98); }
@@ -101,53 +105,50 @@ body::before {
   background: var(--accent);
   color: var(--bg);
 }
-
 .btn-primary:hover {
-  background: #00e0ff;
-  box-shadow: 0 0 20px rgba(0, 200, 255, 0.5);
+  background: #1ad4ff;
+  box-shadow: 0 0 16px rgba(0, 200, 255, 0.45);
 }
 
 .btn-danger {
   border-color: var(--lose);
   color: var(--lose);
 }
-.btn-danger:hover { background: rgba(255, 58, 58, 0.1); }
+.btn-danger:hover { background: rgba(255, 68, 68, 0.1); }
 
 .input {
   background: var(--surface2);
   border: 1px solid var(--border);
+  border-radius: 3px;
   color: var(--text-bright);
-  padding: 0.5rem 0.75rem;
+  padding: 0.5rem 0.85rem;
   font-family: 'Barlow', sans-serif;
-  font-size: 0.9rem;
+  font-size: 0.95rem;
   outline: none;
   width: 100%;
   transition: border-color 0.15s;
 }
-
 .input:focus { border-color: var(--accent); }
 .input::placeholder { color: var(--text-dim); }
-
-select.input option {
-  background: var(--surface2);
-}
+select.input option { background: var(--surface2); }
 
 .tag {
   font-family: 'Share Tech Mono', monospace;
-  font-size: 0.7rem;
+  font-size: 0.72rem;
   padding: 0.15rem 0.5rem;
   border: 1px solid;
   letter-spacing: 0.05em;
+  border-radius: 2px;
 }
-
-.tag-atk { border-color: var(--accent2); color: var(--accent2); }
-.tag-def { border-color: var(--accent); color: var(--accent); }
-.tag-win { border-color: var(--win); color: var(--win); }
-.tag-lose { border-color: var(--lose); color: var(--lose); }
+.tag-atk  { border-color: var(--accent2); color: var(--accent2); }
+.tag-def  { border-color: var(--accent);  color: var(--accent);  }
+.tag-win  { border-color: var(--win);     color: var(--win);     }
+.tag-lose { border-color: var(--lose);    color: var(--lose);    }
 
 .rating-bar {
   height: 3px;
   background: var(--border);
+  border-radius: 2px;
   position: relative;
   overflow: hidden;
 }
@@ -155,6 +156,7 @@ select.input option {
   position: absolute;
   left: 0; top: 0; height: 100%;
   background: var(--accent);
+  border-radius: 2px;
   transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
@@ -167,8 +169,8 @@ select.input option {
 }
 
 @keyframes pulse-glow {
-  0%, 100% { box-shadow: 0 0 8px rgba(0, 200, 255, 0.3); }
-  50% { box-shadow: 0 0 20px rgba(0, 200, 255, 0.7); }
+  0%, 100% { box-shadow: 0 0 6px rgba(0, 200, 255, 0.3); }
+  50%       { box-shadow: 0 0 16px rgba(0, 200, 255, 0.65); }
 }
 
 .live-indicator {
@@ -181,14 +183,16 @@ select.input option {
 .tab {
   font-family: 'Rajdhani', sans-serif;
   font-weight: 600;
-  font-size: 0.8rem;
-  letter-spacing: 0.1em;
+  font-size: 0.875rem;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  padding: 0.6rem 1.2rem;
+  padding: 0.65rem 1.2rem;
+  border: none;
   border-bottom: 2px solid transparent;
   cursor: pointer;
   color: var(--text-dim);
-  transition: all 0.15s;
+  transition: color 0.15s, border-color 0.15s;
+  background: transparent;
 }
 .tab:hover { color: var(--text); }
 .tab.active {
@@ -198,15 +202,15 @@ select.input option {
 
 .section-label {
   font-family: 'Share Tech Mono', monospace;
-  font-size: 0.65rem;
-  letter-spacing: 0.15em;
+  font-size: 0.7rem;
+  letter-spacing: 0.13em;
   text-transform: uppercase;
   color: var(--text-dim);
 }
 
 .rank-number {
   font-family: 'Share Tech Mono', monospace;
-  font-size: 0.75rem;
+  font-size: 0.8rem;
   color: var(--text-dim);
   width: 24px;
   text-align: right;
@@ -215,8 +219,8 @@ select.input option {
 .player-name {
   font-family: 'Rajdhani', sans-serif;
   font-weight: 600;
-  font-size: 1.05rem;
-  letter-spacing: 0.03em;
+  font-size: 1.1rem;
+  letter-spacing: 0.02em;
   color: var(--text-bright);
 }
 
@@ -228,13 +232,14 @@ select.input option {
 
 .winrate {
   font-family: 'Share Tech Mono', monospace;
-  font-size: 0.8rem;
+  font-size: 0.85rem;
 }
 
-.scrollbar-thin::-webkit-scrollbar { width: 4px; }
+.scrollbar-thin::-webkit-scrollbar       { width: 4px; }
 .scrollbar-thin::-webkit-scrollbar-track { background: var(--surface); }
-.scrollbar-thin::-webkit-scrollbar-thumb { background: var(--border2); }
+.scrollbar-thin::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
 
+/* Removed the harsh corner-tl cut — use a subtler right-side fade instead */
 .corner-tl::after {
   content: '';
   position: absolute;
@@ -242,15 +247,17 @@ select.input option {
   width: 12px; height: 12px;
   border-top: 1px solid var(--border2);
   border-right: 1px solid var(--border2);
+  border-radius: 0 4px 0 0;
 }
 
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
-.fade-in { animation: fadeIn 0.3s ease forwards; }
+.fade-in { animation: fadeIn 0.25s ease forwards; }
 
 .gradient-bar {
   height: 2px;
   background: linear-gradient(90deg, var(--accent), var(--accent2), transparent);
+  border-radius: 1px;
 }
