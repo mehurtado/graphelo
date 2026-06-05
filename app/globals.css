@@ -1,28 +1,28 @@
-@import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Share+Tech+Mono&family=Barlow:wght@300;400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Share+Tech+Mono&family=Barlow:wght@300;400;500;600&display=swap');
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
-  --bg:          #0b1220;
-  --surface:     #111e2e;
-  --surface2:    #172234;
-  --border:      #243650;
-  --border2:     #304a68;
+  --bg:          #0d1926;
+  --surface:     #162236;
+  --surface2:    #1c2d46;
+  --border:      #2a4060;
+  --border2:     #3a5575;
   --accent:      #00c8ff;
   --accent2:     #ff6b35;
   --accent3:     #39ff14;
   --text:        #ccdaea;
-  --text-dim:    #6b8da0;
-  --text-bright: #eaf4ff;
-  --win:         #39ff14;
+  --text-dim:    #7090a8;
+  --text-bright: #eaf5ff;
+  --win:         #3ddf18;
   --lose:        #ff4444;
   --neutral:     #ffcc00;
 }
 
 body.light {
-  background: #f0f4f8;
+  background: #edf2f7;
 }
 body.light::before { display: none; }
 
@@ -34,12 +34,12 @@ body {
   font-family: 'Barlow', sans-serif;
   font-weight: 400;
   font-size: 15px;
-  line-height: 1.5;
+  line-height: 1.55;
   min-height: 100vh;
   overflow-x: hidden;
 }
 
-/* Very subtle scanline — just texture, not distraction */
+/* Nearly invisible scanline — just a touch of texture */
 body::before {
   content: '';
   position: fixed;
@@ -47,9 +47,9 @@ body::before {
   background: repeating-linear-gradient(
     0deg,
     transparent,
-    transparent 3px,
-    rgba(0, 200, 255, 0.008) 3px,
-    rgba(0, 200, 255, 0.008) 6px
+    transparent 4px,
+    rgba(0, 180, 255, 0.006) 4px,
+    rgba(0, 180, 255, 0.006) 8px
   );
   pointer-events: none;
   z-index: 9999;
@@ -61,7 +61,7 @@ body::before {
 .panel {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: 5px;
   position: relative;
 }
 
@@ -69,7 +69,7 @@ body::before {
   content: '';
   position: absolute;
   top: 0; left: 0;
-  width: 32px; height: 2px;
+  width: 28px; height: 2px;
   background: var(--accent);
   border-radius: 2px 0 0 0;
 }
@@ -80,48 +80,42 @@ body::before {
 .btn {
   font-family: 'Rajdhani', sans-serif;
   font-weight: 600;
-  font-size: 0.875rem;
+  font-size: 0.9rem;
   letter-spacing: 0.07em;
   text-transform: uppercase;
-  padding: 0.45rem 1.1rem;
+  padding: 0.45rem 1.15rem;
   border: 1px solid var(--accent);
   border-radius: 3px;
   color: var(--accent);
   background: transparent;
   cursor: pointer;
   transition: background 0.15s, box-shadow 0.15s;
-  position: relative;
-  overflow: hidden;
 }
 
 .btn:hover {
-  background: rgba(0, 200, 255, 0.1);
-  box-shadow: 0 0 10px rgba(0, 200, 255, 0.25);
+  background: rgba(0, 200, 255, 0.12);
+  box-shadow: 0 0 10px rgba(0, 200, 255, 0.22);
 }
-
-.btn:active { transform: scale(0.98); }
+.btn:active { transform: scale(0.97); }
 
 .btn-primary {
   background: var(--accent);
   color: var(--bg);
 }
 .btn-primary:hover {
-  background: #1ad4ff;
-  box-shadow: 0 0 16px rgba(0, 200, 255, 0.45);
+  background: #18d4ff;
+  box-shadow: 0 0 18px rgba(0, 200, 255, 0.4);
 }
 
-.btn-danger {
-  border-color: var(--lose);
-  color: var(--lose);
-}
+.btn-danger { border-color: var(--lose); color: var(--lose); }
 .btn-danger:hover { background: rgba(255, 68, 68, 0.1); }
 
 .input {
   background: var(--surface2);
   border: 1px solid var(--border);
-  border-radius: 3px;
+  border-radius: 4px;
   color: var(--text-bright);
-  padding: 0.5rem 0.85rem;
+  padding: 0.5rem 0.9rem;
   font-family: 'Barlow', sans-serif;
   font-size: 0.95rem;
   outline: none;
@@ -160,17 +154,9 @@ select.input option { background: var(--surface2); }
   transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.confidence-ring {
-  width: 48px; height: 48px;
-  border-radius: 50%;
-  border: 2px solid var(--border);
-  position: relative;
-  display: flex; align-items: center; justify-content: center;
-}
-
 @keyframes pulse-glow {
   0%, 100% { box-shadow: 0 0 6px rgba(0, 200, 255, 0.3); }
-  50%       { box-shadow: 0 0 16px rgba(0, 200, 255, 0.65); }
+  50%       { box-shadow: 0 0 16px rgba(0, 200, 255, 0.6); }
 }
 
 .live-indicator {
@@ -183,10 +169,10 @@ select.input option { background: var(--surface2); }
 .tab {
   font-family: 'Rajdhani', sans-serif;
   font-weight: 600;
-  font-size: 0.875rem;
+  font-size: 0.9rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  padding: 0.65rem 1.2rem;
+  padding: 0.7rem 1.25rem;
   border: none;
   border-bottom: 2px solid transparent;
   cursor: pointer;
@@ -194,23 +180,21 @@ select.input option { background: var(--surface2); }
   transition: color 0.15s, border-color 0.15s;
   background: transparent;
 }
-.tab:hover { color: var(--text); }
-.tab.active {
-  color: var(--accent);
-  border-bottom-color: var(--accent);
-}
+.tab:hover  { color: var(--text); }
+.tab.active { color: var(--accent); border-bottom-color: var(--accent); }
 
+/* Section labels — used as column headers and sub-headers */
 .section-label {
   font-family: 'Share Tech Mono', monospace;
-  font-size: 0.7rem;
-  letter-spacing: 0.13em;
+  font-size: 0.72rem;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--text-dim);
 }
 
 .rank-number {
   font-family: 'Share Tech Mono', monospace;
-  font-size: 0.8rem;
+  font-size: 0.85rem;
   color: var(--text-dim);
   width: 24px;
   text-align: right;
@@ -219,27 +203,26 @@ select.input option { background: var(--surface2); }
 .player-name {
   font-family: 'Rajdhani', sans-serif;
   font-weight: 600;
-  font-size: 1.1rem;
+  font-size: 1.15rem;
   letter-spacing: 0.02em;
   color: var(--text-bright);
 }
 
 .rating-value {
   font-family: 'Share Tech Mono', monospace;
-  font-size: 1.1rem;
+  font-size: 1.15rem;
   color: var(--accent);
 }
 
 .winrate {
   font-family: 'Share Tech Mono', monospace;
-  font-size: 0.85rem;
+  font-size: 0.9rem;
 }
 
 .scrollbar-thin::-webkit-scrollbar       { width: 4px; }
 .scrollbar-thin::-webkit-scrollbar-track { background: var(--surface); }
 .scrollbar-thin::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
 
-/* Removed the harsh corner-tl cut — use a subtler right-side fade instead */
 .corner-tl::after {
   content: '';
   position: absolute;
@@ -247,7 +230,7 @@ select.input option { background: var(--surface2); }
   width: 12px; height: 12px;
   border-top: 1px solid var(--border2);
   border-right: 1px solid var(--border2);
-  border-radius: 0 4px 0 0;
+  border-radius: 0 5px 0 0;
 }
 
 @keyframes fadeIn {
