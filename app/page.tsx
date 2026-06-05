@@ -2049,7 +2049,7 @@ export default function Home() {
                     <span className="font-mono" style={{ fontSize: "0.9rem", color: cycleAnalysis.transitivity_rate > 0.7 ? "var(--win)" : "var(--neutral)" }}>
                       {Math.round(cycleAnalysis.transitivity_rate * 100)}%
                     </span>
-                    <span className="font-mono" style={{ fontSize: "0.72rem", color: "var(--text-dim)", marginLeft: 6 }}>rankings are this transitive</span>
+                    <span className="font-mono" style={{ fontSize: "0.72rem", color: "var(--text-dim)", marginLeft: 6 }}>of matchups follow A beats B beats C → A beats C</span>
                   </div>
                   <div>
                     <div className="section-label" style={{ marginBottom: 2 }}>3-CYCLES FOUND</div>
