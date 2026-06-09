@@ -381,43 +381,44 @@ function computeArchetype(playerId: string, ranking: RankEntry[], state: GraphSt
   return "THE SOLDIER";
 }
 
-function predictScore(
-  state: GraphState,
-  aId: string,
-  bId: string,
-  p_a_wins: number,
-): { aKills: number; bKills: number } {
-  const games = state.games;
-  if (games.length === 0) return { aKills: 7, bKills: 5 };
+function binomCoeff(n: number, k: number): number {
+  if (k === 0 || k === n) return 1;
+  if (k > n) return 0;
+  let r = 1;
+  for (let i = 0; i < k; i++) r *= (n - i) / (i + 1);
+  return Math.round(r);
+}
 
-  const globalWinKills  = games.reduce((s, g) => s + g.winner_stats.kills, 0) / games.length;
-  const globalLoseKills = games.reduce((s, g) => s + g.loser_stats.kills,  0) / games.length;
-
-  const stats = (id: string) => {
-    const won  = games.filter(g => g.winner_id === id);
-    const lost = games.filter(g => g.loser_id  === id);
-    return {
-      win:  won.length  >= 2 ? won.reduce( (s, g) => s + g.winner_stats.kills, 0) / won.length  : null,
-      lose: lost.length >= 2 ? lost.reduce((s, g) => s + g.loser_stats.kills,  0) / lost.length : null,
-    };
-  };
-
-  const a = stats(aId), b = stats(bId);
-  const blend = (personal: number | null, global: number) =>
-    personal !== null ? personal * 0.65 + global * 0.35 : global;
-
-  let aKills: number, bKills: number;
-  if (p_a_wins >= 0.5) {
-    aKills = Math.round(blend(a.win,  globalWinKills));
-    bKills = Math.round(blend(b.lose, globalLoseKills));
-    if (bKills >= aKills) bKills = aKills - 1;
-  } else {
-    bKills = Math.round(blend(b.win,  globalWinKills));
-    aKills = Math.round(blend(a.lose, globalLoseKills));
-    if (aKills >= bKills) aKills = bKills - 1;
+function matchWinProb(p: number, target = 7): number {
+  let prob = 0;
+  for (let k = target; k <= 2 * target - 1; k++) {
+    prob += binomCoeff(k - 1, target - 1) * Math.pow(p, target) * Math.pow(1 - p, k - target);
   }
+  return prob;
+}
 
-  return { aKills: Math.max(0, aKills), bKills: Math.max(0, bKills) };
+function roundWinRate(P: number, target = 7): number {
+  if (Math.abs(P - 0.5) < 1e-9) return 0.5;
+  let lo = 0, hi = 1;
+  for (let i = 0; i < 64; i++) {
+    const mid = (lo + hi) / 2;
+    if (matchWinProb(mid, target) < P) lo = mid; else hi = mid;
+  }
+  return (lo + hi) / 2;
+}
+
+function predictScore(p_a_wins: number, target = 7): { aKills: number; bKills: number } {
+  const p = roundWinRate(Math.max(0.001, Math.min(0.999, p_a_wins)), target);
+  let expRounds = 0;
+  for (let k = target; k <= 2 * target - 1; k++) {
+    const pA = binomCoeff(k - 1, target - 1) * Math.pow(p, target) * Math.pow(1 - p, k - target);
+    const pB = binomCoeff(k - 1, target - 1) * Math.pow(1 - p, target) * Math.pow(p, k - target);
+    expRounds += k * (pA + pB);
+  }
+  const loser = Math.max(0, Math.round(expRounds - target));
+  return p_a_wins >= 0.5
+    ? { aKills: target, bKills: loser }
+    : { aKills: loser, bKills: target };
 }
 
 function generatePowerBlurb(
@@ -1154,7 +1155,7 @@ export default function Home() {
                                   </div>
                                   <span className="font-mono" style={{ fontSize: "0.92rem", color, minWidth: 36, textAlign: "right" }}>{pct(p, 0)}</span>
                                   {(() => {
-                                    const { aKills, bKills } = predictScore(state, r.player_id, opp.id, p);
+                                    const { aKills, bKills } = predictScore(p);
                                     return (
                                       <span className="font-mono" style={{ fontSize: "0.84rem", color: "var(--text-dim)", minWidth: 36, textAlign: "right" }}>
                                         <span style={{ color: p >= 0.5 ? "var(--text-bright)" : "var(--text-dim)" }}>{aKills}</span>
@@ -1740,7 +1741,7 @@ export default function Home() {
 
                   {/* Predicted score */}
                   {state.games.length >= 2 && (() => {
-                    const { aKills, bKills } = predictScore(state, predA, predB, pA);
+                    const { aKills, bKills } = predictScore(pA);
                     const aWins = pA >= 0.5;
                     return (
                       <div style={{ textAlign: "center", marginBottom: 18, paddingBottom: 18, borderBottom: "1px solid var(--border)" }}>
