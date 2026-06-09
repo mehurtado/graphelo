@@ -973,8 +973,10 @@ export default function Home() {
                 {infoGain.slice(0, 3).map((ig, idx) => {
                   const aName = state.players[ig.a]?.display_name ?? ig.a;
                   const bName = state.players[ig.b]?.display_name ?? ig.b;
-                  const favored = ig.win_prob >= 0.5 ? aName : bName;
-                  const favProb = ig.win_prob >= 0.5 ? ig.win_prob : 1 - ig.win_prob;
+                  const simA = h2hSim[ig.a]?.[ig.b];
+                  const pA = simA !== undefined ? simA / 1000 : ig.win_prob;
+                  const favored = pA >= 0.5 ? aName : bName;
+                  const favProb = pA >= 0.5 ? pA : 1 - pA;
                   return (
                     <div key={idx} style={{ display: "flex", alignItems: "center", gap: 10 }}>
                       <span className="font-mono" style={{ fontSize: "0.78rem", color: "var(--accent3)", minWidth: 12 }}>#{idx + 1}</span>
@@ -984,7 +986,7 @@ export default function Home() {
                       <span className="player-name" style={{ fontSize: "0.88rem" }}>{bName}</span>
                       <span className="font-mono" style={{ fontSize: "0.78rem", color: "var(--text-dim)", flex: 1 }}>{ig.context}</span>
                       <span className="font-mono" style={{ fontSize: "0.78rem", color: "var(--text-dim)", flexShrink: 0 }}>
-                        {favored} {Math.round(favProb * 100)}% fav
+                        {favored} {(favProb * 100).toFixed(1)}% fav
                       </span>
                       <button className="btn" style={{ padding: "1px 6px", fontSize: "0.74rem", flexShrink: 0 }}
                         onClick={() => { setPredA(ig.a); setPredB(ig.b); setPrediction(predictPairwise(state, ig.a, ig.b)); setTab("matchup"); }}>

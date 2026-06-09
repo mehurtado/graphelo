@@ -1279,7 +1279,7 @@ export function computeInformationGain(state: GraphState, bt: BTResult): InfoGai
             : `Rematch · ${directGames} prior game${directGames > 1 ? 's' : ''}`;
         }
       }
-      candidates.push({ a: ai, b: bi, info_gain, direct_games: directGames, win_prob: Math.round(p * 100) / 100, label: "LOW", context });
+      candidates.push({ a: ai, b: bi, info_gain, direct_games: directGames, win_prob: p, label: "LOW", context });
     }
   }
 
