@@ -1,7 +1,7 @@
 ﻿"use client";
 import { useState, useEffect, useCallback, useMemo } from "react";
-import type { GraphState, Game, RankEntry, PairwisePrediction, PerGameStats, H2hSim, BTResult, CycleAnalysis, LooCvResult, SkillGapTrend, DominancePath } from "@/lib/graph-engine";
-import { simulateRoundRobin, predictPairwise, computeElo, computePredictionAccuracy, computeEloHistory, computeMetaStability, computeReliability, computeEloVelocity, computeBradleyTerry, computeCycles, computeCeilingEstimate, computeNemesisProfile, computeParityIndex, computeFormRating, computeLooCvBrier, computeSkillGapTrend, computeRematchUrgency, computeUpsetAlert, kendallTauAgreement } from "@/lib/graph-engine";
+import type { GraphState, Game, RankEntry, PairwisePrediction, PerGameStats, H2hSim, BTResult, CycleAnalysis, LooCvResult, SkillGapTrend, DominancePath, ExtendedPlayerStats, DominanceDuration, InfoGainEntry, KingmakerEntry, CalibrationBucket, PermutationTestResult } from "@/lib/graph-engine";
+import { simulateRoundRobin, predictPairwise, computeElo, computePredictionAccuracy, computeEloHistory, computeMetaStability, computeReliability, computeEloVelocity, computeBradleyTerry, computeCycles, computeCeilingEstimate, computeNemesisProfile, computeParityIndex, computeFormRating, computeLooCvBrier, computeSkillGapTrend, computeRematchUrgency, computeUpsetAlert, kendallTauAgreement, computeExtendedPlayerStats, computeDominanceDuration, computeInformationGain, computeRetroactiveImpact, computeKingmaker, computeCalibrationCurve, computePermutationTest } from "@/lib/graph-engine";
 
 type Tab = "ranking" | "log" | "matchup" | "history" | "players" | "system";
 
@@ -643,6 +643,12 @@ export default function Home() {
   const [suggestSort, setSuggestSort] = useState<"closest" | "elovalue" | "uncertain">("closest");
   const [scoreWinner, setScoreWinner] = useState<string>("");
   const [scoreLoser, setScoreLoser] = useState<string>("");
+  const [infoGain, setInfoGain] = useState<InfoGainEntry[]>([]);
+  const [retroImpact, setRetroImpact] = useState<Record<string, number>>({});
+  const [kingmaker, setKingmaker] = useState<KingmakerEntry[]>([]);
+  const [calibration, setCalibration] = useState<CalibrationBucket[]>([]);
+  const [permTest, setPermTest] = useState<PermutationTestResult | null>(null);
+  const [runningPermTest, setRunningPermTest] = useState(false);
 
   useEffect(() => {
     const saved = localStorage.getItem("graphelo-theme") as "dark" | "light" | null;
@@ -710,11 +716,16 @@ export default function Home() {
       setEloHistory(hist);
       setMetaStability(computeMetaStability(s));
       if (s.games.length > 1) setPredAccuracy(computePredictionAccuracy(s));
-      setBtResult(computeBradleyTerry(s));
+      const bt = computeBradleyTerry(s);
+      setBtResult(bt);
       setCycleAnalysis(computeCycles(s));
       setLooCv(computeLooCvBrier(s));
       setSkillGap(computeSkillGapTrend(s));
       setFormRating(computeFormRating(s));
+      if (bt) setInfoGain(computeInformationGain(s, bt));
+      setRetroImpact(computeRetroactiveImpact(s));
+      setKingmaker(computeKingmaker(s));
+      setCalibration(computeCalibrationCurve(s));
     } catch { setError("Ranking failed"); }
   }, []);
 
@@ -954,6 +965,38 @@ export default function Home() {
             );
           })()}
 
+          {/* Play This Next — top info gain matchups */}
+          {infoGain.length > 0 && state.games.length > 0 && (
+            <div className="panel" style={{ padding: "11px 16px", marginBottom: 14, borderColor: "var(--accent3)" }}>
+              <div className="section-label" style={{ marginBottom: 8, color: "var(--accent3)" }}>PLAY THIS NEXT</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                {infoGain.slice(0, 3).map((ig, idx) => {
+                  const aName = state.players[ig.a]?.display_name ?? ig.a;
+                  const bName = state.players[ig.b]?.display_name ?? ig.b;
+                  const favored = ig.win_prob >= 0.5 ? aName : bName;
+                  const favProb = ig.win_prob >= 0.5 ? ig.win_prob : 1 - ig.win_prob;
+                  return (
+                    <div key={idx} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <span className="font-mono" style={{ fontSize: "0.78rem", color: "var(--accent3)", minWidth: 12 }}>#{idx + 1}</span>
+                      <span className="font-mono" style={{ fontSize: "0.82rem", color: "var(--text-dim)", border: "1px solid var(--accent3)", padding: "0 4px" }}>{ig.label}</span>
+                      <span className="player-name" style={{ fontSize: "0.88rem" }}>{aName}</span>
+                      <span className="font-mono" style={{ fontSize: "0.80rem", color: "var(--text-dim)" }}>vs</span>
+                      <span className="player-name" style={{ fontSize: "0.88rem" }}>{bName}</span>
+                      <span className="font-mono" style={{ fontSize: "0.78rem", color: "var(--text-dim)", flex: 1 }}>{ig.context}</span>
+                      <span className="font-mono" style={{ fontSize: "0.78rem", color: "var(--text-dim)", flexShrink: 0 }}>
+                        {favored} {Math.round(favProb * 100)}% fav
+                      </span>
+                      <button className="btn" style={{ padding: "1px 6px", fontSize: "0.74rem", flexShrink: 0 }}
+                        onClick={() => { setPredA(ig.a); setPredB(ig.b); setPrediction(predictPairwise(state, ig.a, ig.b)); setTab("matchup"); }}>
+                        →
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           {mostInteresting && state.games.length > 0 && (
             <div className="panel" style={{ padding: "11px 16px", marginBottom: 14, display: "flex", alignItems: "center", gap: 14, borderColor: "var(--accent)" }}>
               <div style={{ flex: 1 }}>
@@ -991,8 +1034,8 @@ export default function Home() {
               })()}
 
               {/* Table header */}
-              <div style={{ display: "grid", gridTemplateColumns: "28px 1fr 64px 72px 56px 64px 64px 72px", gap: 10, padding: "5px 12px", marginBottom: 4 }}>
-                {["#", "PLAYER", "WIN%", "CHAMP%", "ELO", "KD", "KPG", "W-L"].map((h, i) => (
+              <div style={{ display: "grid", gridTemplateColumns: "28px 1fr 64px 72px 56px 64px 64px 64px 72px", gap: 10, padding: "5px 12px", marginBottom: 4 }}>
+                {["#", "PLAYER", "WIN%", "CHAMP%", "ELO", "KD", "KPG", "FORM", "W-L"].map((h, i) => (
                   <span key={h} className="section-label" style={{ textAlign: i > 1 ? "right" : "left" }}>{h}</span>
                 ))}
               </div>
@@ -1007,7 +1050,7 @@ export default function Home() {
                   <div key={r.player_id} style={{ marginBottom: 1 }}>
                     <div className="panel corner-tl" onClick={() => setSelectedPlayer(isSelected ? null : r.player_id)} style={{
                       display: "grid",
-                      gridTemplateColumns: "28px 1fr 64px 72px 56px 64px 64px 72px",
+                      gridTemplateColumns: "28px 1fr 64px 72px 56px 64px 64px 64px 72px",
                       gap: 10, padding: "15px 16px", alignItems: "center",
                       cursor: "pointer",
                       borderColor: isSelected ? "var(--accent)" : isTop ? "var(--accent)" : undefined,
@@ -1062,6 +1105,17 @@ export default function Home() {
                       </div>
                       <div style={{ textAlign: "right" }} className="winrate">{fmt(sv.kd)}</div>
                       <div style={{ textAlign: "right" }} className="winrate">{fmt(sv.kpr, 1)}</div>
+                      {(() => {
+                        const fr = formRating[r.player_id] ?? elo[r.player_id] ?? 1000;
+                        const base = elo[r.player_id] ?? 1000;
+                        const delta = Math.round(fr - base);
+                        const col = delta > 5 ? "var(--win)" : delta < -5 ? "var(--lose)" : "var(--text-dim)";
+                        return (
+                          <div style={{ textAlign: "right" }} className="winrate">
+                            <span style={{ color: col, fontSize: "0.88rem" }}>{delta > 0 ? "+" : ""}{delta}</span>
+                          </div>
+                        );
+                      })()}
                       {(() => {
                         const w = state.games.filter(g => g.winner_id === r.player_id).length;
                         const l = state.games.filter(g => g.loser_id  === r.player_id).length;
@@ -1240,6 +1294,85 @@ export default function Home() {
                               </div>
                             );
                           })()}
+                          {/* Extended stats */}
+                          {(() => {
+                            const eloRankIdx = [...sortedRanking].sort((a, b) => (elo[b.player_id] ?? 1000) - (elo[a.player_id] ?? 1000)).findIndex(x => x.player_id === r.player_id);
+                            const ext: ExtendedPlayerStats = computeExtendedPlayerStats(state, r.player_id, eloHistory[r.player_id] ?? [], eloRankIdx);
+                            const dur: DominanceDuration | null = computeDominanceDuration(state, r.player_id);
+                            return (
+                              <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid var(--border)" }}>
+                                <div className="section-label" style={{ marginBottom: 6, color: "var(--accent)" }}>EXTENDED STATS</div>
+                                <div style={{ display: "flex", flexWrap: "wrap", gap: 18 }}>
+                                  <div>
+                                    <div className="section-label" style={{ marginBottom: 2 }}>PEAK ELO</div>
+                                    <span className="font-mono" style={{ fontSize: "0.9rem", color: "var(--accent)" }}>{ext.peak_elo}</span>
+                                  </div>
+                                  <div>
+                                    <div className="section-label" style={{ marginBottom: 2 }}>ELO VOLATILITY</div>
+                                    <span className="font-mono" style={{ fontSize: "0.9rem", color: "var(--text-bright)" }}>±{Math.round(ext.elo_volatility)}</span>
+                                  </div>
+                                  {ext.has_score_data && (
+                                    <>
+                                      <div>
+                                        <div className="section-label" style={{ marginBottom: 2 }}>KILL RATE</div>
+                                        <span className="font-mono" style={{ fontSize: "0.9rem", color: "var(--text-bright)" }}>{ext.kill_rate.toFixed(2)}/rd</span>
+                                      </div>
+                                      <div>
+                                        <div className="section-label" style={{ marginBottom: 2 }}>RND WIN%</div>
+                                        <span className="font-mono" style={{ fontSize: "0.9rem", color: "var(--text-bright)" }}>{Math.round(ext.round_win_rate * 100)}%</span>
+                                      </div>
+                                      <div>
+                                        <div className="section-label" style={{ marginBottom: 2 }}>EFFICIENCY</div>
+                                        <span className="font-mono" style={{ fontSize: "0.9rem", color: ext.efficiency > 0 ? "var(--win)" : "var(--lose)" }}>
+                                          {ext.efficiency > 0 ? "+" : ""}{ext.efficiency.toFixed(2)}
+                                        </span>
+                                      </div>
+                                      <div>
+                                        <div className="section-label" style={{ marginBottom: 2 }}>AGGRESSION</div>
+                                        <span className="font-mono" style={{ fontSize: "0.9rem", color: "var(--text-bright)" }}>{ext.aggression.toFixed(2)}</span>
+                                      </div>
+                                    </>
+                                  )}
+                                  {ext.upward_wr !== null && (
+                                    <div>
+                                      <div className="section-label" style={{ marginBottom: 2 }}>vs TOP</div>
+                                      <span className="font-mono" style={{ fontSize: "0.9rem", color: ext.upward_wr > 0.5 ? "var(--win)" : "var(--lose)" }}>
+                                        {Math.round(ext.upward_wr * 100)}%
+                                      </span>
+                                    </div>
+                                  )}
+                                  {ext.downward_wr !== null && (
+                                    <div>
+                                      <div className="section-label" style={{ marginBottom: 2 }}>vs BOT</div>
+                                      <span className="font-mono" style={{ fontSize: "0.9rem", color: ext.downward_wr > 0.5 ? "var(--win)" : "var(--lose)" }}>
+                                        {Math.round(ext.downward_wr * 100)}%
+                                      </span>
+                                    </div>
+                                  )}
+                                  <div>
+                                    <div className="section-label" style={{ marginBottom: 2 }}>SoS</div>
+                                    <span className="font-mono" style={{ fontSize: "0.9rem", color: "var(--text-bright)" }}>{Math.round(ext.strength_of_schedule)}</span>
+                                  </div>
+                                  <div>
+                                    <div className="section-label" style={{ marginBottom: 2 }}>ENTROPY</div>
+                                    <span className="font-mono" style={{ fontSize: "0.9rem", color: "var(--text-bright)" }}>{ext.predictability_entropy.toFixed(2)}</span>
+                                  </div>
+                                  {dur && (
+                                    <>
+                                      <div>
+                                        <div className="section-label" style={{ marginBottom: 2 }}>PEAK RANK</div>
+                                        <span className="font-mono" style={{ fontSize: "0.9rem", color: dur.peak_rank === 1 ? "var(--accent)" : "var(--text-bright)" }}>#{dur.peak_rank}</span>
+                                      </div>
+                                      <div>
+                                        <div className="section-label" style={{ marginBottom: 2 }}>AT #{dur.current_rank}</div>
+                                        <span className="font-mono" style={{ fontSize: "0.9rem", color: "var(--text-bright)" }}>{dur.games_at_rank}G</span>
+                                      </div>
+                                    </>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })()}
                         </div>
                       );
                     })()}
@@ -1303,6 +1436,52 @@ export default function Home() {
               {ranking.length >= 2 && (
                 <div style={{ marginTop: 28, marginBottom: 28 }}>
                   <PlayerScatterPlot ranking={sortedRanking} />
+                </div>
+              )}
+
+              {/* Coverage map — matchup completion heatmap */}
+              {ranking.length >= 2 && (
+                <div style={{ marginTop: 28 }}>
+                  <div className="section-label" style={{ marginBottom: 10 }}>MATCHUP COVERAGE</div>
+                  <div style={{ overflowX: "auto" }}>
+                    <table style={{ borderCollapse: "collapse", fontSize: "0.82rem", fontFamily: "Share Tech Mono" }}>
+                      <thead>
+                        <tr>
+                          <td style={{ padding: "3px 8px", color: "var(--text-dim)" }}></td>
+                          {sortedRanking.map(r => (
+                            <td key={r.player_id} style={{ padding: "3px 6px", color: "var(--text-dim)", textAlign: "center", maxWidth: 54, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                              {r.display_name.slice(0, 5)}
+                            </td>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {sortedRanking.map(rowP => (
+                          <tr key={rowP.player_id}>
+                            <td style={{ padding: "3px 8px", color: "var(--text-dim)", whiteSpace: "nowrap" }}>{rowP.display_name.slice(0, 7)}</td>
+                            {sortedRanking.map(colP => {
+                              if (rowP.player_id === colP.player_id) {
+                                return <td key={colP.player_id} style={{ padding: "3px 6px", textAlign: "center", background: "var(--surface2)", color: "var(--text-dim)" }}>—</td>;
+                              }
+                              const g = state.games.filter(g =>
+                                (g.winner_id === rowP.player_id && g.loser_id === colP.player_id) ||
+                                (g.winner_id === colP.player_id && g.loser_id === rowP.player_id)
+                              ).length;
+                              const bg = g === 0 ? "rgba(255,255,255,0.02)" : g === 1 ? "rgba(0,118,181,0.20)" : "rgba(0,118,181,0.55)";
+                              return (
+                                <td key={colP.player_id} style={{ padding: "3px 6px", textAlign: "center", background: bg, color: g === 0 ? "var(--border)" : "var(--text-bright)" }}>
+                                  {g}
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div className="font-mono" style={{ fontSize: "0.76rem", color: "var(--text-dim)", marginTop: 6 }}>
+                    dark = 0 games · medium = 1 · bright = 2+
+                  </div>
                 </div>
               )}
 
@@ -1730,6 +1909,16 @@ export default function Home() {
                       {revengeMap[g.id] && (
                         <div className="font-mono" style={{ fontSize: "0.74rem", color: "var(--accent2)", border: "1px solid var(--accent2)", padding: "0 3px", marginTop: 2, lineHeight: 1.5 }}>REVENGE</div>
                       )}
+                      {(() => {
+                        const imp = retroImpact[g.id] ?? 0;
+                        if (imp < 0.15) return null;
+                        const stars = imp > 0.8 ? 5 : imp > 0.6 ? 4 : imp > 0.4 ? 3 : imp > 0.2 ? 2 : 1;
+                        return (
+                          <div className="font-mono" style={{ fontSize: "0.74rem", color: "var(--accent)", marginTop: 2, lineHeight: 1.5 }}>
+                            {"★".repeat(stars)}
+                          </div>
+                        );
+                      })()}
                       <div style={{ fontSize: "0.84rem", color: "var(--text-dim)", fontFamily: "Share Tech Mono", marginTop: 2 }}>
                         {new Date(g.timestamp).toLocaleDateString()}
                       </div>
@@ -2104,6 +2293,106 @@ export default function Home() {
               </div>
             );
           })()}
+
+          {/* Kingmaker panel */}
+          {kingmaker.length > 0 && (
+            <div className="panel" style={{ padding: "14px 18px", marginBottom: 14 }}>
+              <div className="section-label" style={{ marginBottom: 10, color: "var(--accent)" }}>STRUCTURAL INFLUENCE (KINGMAKER)</div>
+              <div className="font-mono" style={{ fontSize: "0.78rem", color: "var(--text-dim)", marginBottom: 8 }}>
+                How much rankings shift when each player is excluded — higher = more structurally important
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                {[...kingmaker].sort((a, b) => b.kendall_tau_shift - a.kendall_tau_shift).map((km, i) => {
+                  const bar = Math.round(km.kendall_tau_shift * 100);
+                  const col = km.kendall_tau_shift > 0.3 ? "var(--accent)" : km.kendall_tau_shift > 0.1 ? "var(--neutral)" : "var(--text-dim)";
+                  return (
+                    <div key={km.player_id} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <span className="font-mono" style={{ fontSize: "0.80rem", color: "var(--text-dim)", minWidth: 18 }}>#{i + 1}</span>
+                      <span className="player-name" style={{ minWidth: 100 }}>{km.display_name}</span>
+                      <div style={{ flex: 1, height: 4, background: "var(--surface2)", borderRadius: 2, overflow: "hidden" }}>
+                        <div style={{ height: "100%", width: `${bar}%`, background: col, borderRadius: 2 }} />
+                      </div>
+                      <span className="font-mono" style={{ fontSize: "0.82rem", color: col, minWidth: 40, textAlign: "right" }}>{bar}%</span>
+                      <span className="font-mono" style={{ fontSize: "0.78rem", color: "var(--text-dim)", minWidth: 60, textAlign: "right" }}>
+                        ±{km.max_position_shift} pos
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Calibration curve panel */}
+          {calibration.length > 0 && (
+            <div className="panel" style={{ padding: "14px 18px", marginBottom: 14 }}>
+              <div className="section-label" style={{ marginBottom: 10, color: "var(--accent)" }}>POOL CALIBRATION</div>
+              <div className="font-mono" style={{ fontSize: "0.78rem", color: "var(--text-dim)", marginBottom: 10 }}>
+                ELO predicted win rate vs actual win rate per confidence bucket
+              </div>
+              <div style={{ display: "flex", gap: 8, alignItems: "flex-end", height: 80 }}>
+                {calibration.map((b, i) => {
+                  const barH = Math.round(b.actual_rate * 100);
+                  const predH = Math.round(b.predicted_mid * 100);
+                  const diff = Math.abs(b.actual_rate - b.predicted_mid);
+                  const col = diff < 0.05 ? "var(--win)" : diff < 0.12 ? "var(--neutral)" : "var(--lose)";
+                  return (
+                    <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
+                      <span className="font-mono" style={{ fontSize: "0.76rem", color: col }}>{barH}%</span>
+                      <div style={{ width: "100%", display: "flex", alignItems: "flex-end", gap: 2, height: 48 }}>
+                        <div style={{ flex: 1, background: "var(--accent)", height: `${barH}%`, borderRadius: "2px 2px 0 0", opacity: 0.8 }} title={`Actual ${barH}%`} />
+                        <div style={{ flex: 1, background: "var(--border2)", height: `${predH}%`, borderRadius: "2px 2px 0 0", opacity: 0.5 }} title={`Predicted ${predH}%`} />
+                      </div>
+                      <span className="font-mono" style={{ fontSize: "0.74rem", color: "var(--text-dim)" }}>{predH}%</span>
+                      <span className="font-mono" style={{ fontSize: "0.72rem", color: "var(--text-dim)" }}>n={b.n}</span>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="font-mono" style={{ fontSize: "0.76rem", color: "var(--text-dim)", marginTop: 8, display: "flex", gap: 14 }}>
+                <span><span style={{ color: "var(--accent)" }}>■</span> actual win rate</span>
+                <span><span style={{ color: "var(--border2)" }}>■</span> ELO predicted (bucket center)</span>
+              </div>
+            </div>
+          )}
+
+          {/* Permutation test panel */}
+          <div className="panel" style={{ padding: "14px 18px", marginBottom: 14 }}>
+            <div className="section-label" style={{ marginBottom: 10, color: "var(--accent)" }}>RANKING SIGNIFICANCE TEST</div>
+            {permTest ? (
+              <div>
+                <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 6 }}>
+                  <span className="font-mono" style={{ fontSize: "0.92rem", color: permTest.significant ? "var(--win)" : "var(--neutral)" }}>
+                    p = {permTest.p_value.toFixed(2)}
+                  </span>
+                  <span className="font-mono" style={{ fontSize: "0.80rem", color: permTest.significant ? "var(--win)" : "var(--text-dim)" }}>
+                    {permTest.label}
+                  </span>
+                </div>
+                <div className="font-mono" style={{ fontSize: "0.78rem", color: "var(--text-dim)" }}>
+                  200-permutation test on BT log-likelihood · p&lt;0.05 = real skill signal
+                </div>
+              </div>
+            ) : (
+              <div className="font-mono" style={{ fontSize: "0.90rem", color: "var(--text-dim)" }}>
+                {state.games.length < 6 || Object.keys(state.players).length < 3
+                  ? "Need ≥6 games and ≥3 players."
+                  : "Click RUN to run permutation test."}
+              </div>
+            )}
+            {(state.games.length >= 6 && Object.keys(state.players).length >= 3) && (
+              <button className="btn" style={{ marginTop: 10, padding: "3px 10px", fontSize: "0.82rem" }}
+                disabled={runningPermTest}
+                onClick={async () => {
+                  setRunningPermTest(true);
+                  await new Promise(r => setTimeout(r, 0));
+                  setPermTest(computePermutationTest(state));
+                  setRunningPermTest(false);
+                }}>
+                {runningPermTest ? "RUNNING..." : "RUN TEST"}
+              </button>
+            )}
+          </div>
         </div>
       )}
 

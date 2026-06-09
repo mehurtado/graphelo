@@ -1067,6 +1067,369 @@ export function computeRematchUrgency(
   };
 }
 
+// ─── Extended Player Stats ────────────────────────────────────────────────────
+
+export interface ExtendedPlayerStats {
+  kill_rate: number;              // kills / total rounds played
+  round_win_rate: number;         // rounds won / total rounds played
+  efficiency: number;             // round_win_rate - kill_rate
+  aggression: number;             // kill_rate - death_rate (per round)
+  upward_wr: number | null;       // WR vs players ranked above
+  downward_wr: number | null;     // WR vs players ranked below
+  strength_of_schedule: number;  // avg opponent ELO weighted by games
+  peak_elo: number;
+  elo_volatility: number;         // std dev of per-game ELO deltas
+  predictability_entropy: number; // Shannon entropy of outcome distribution (0–1)
+  has_score_data: boolean;
+}
+
+export function computeExtendedPlayerStats(
+  state: GraphState,
+  playerId: string,
+  eloHistory: Array<{ timestamp: number; elo: number }>,
+  playerRank: number,            // 0-indexed rank of this player
+): ExtendedPlayerStats {
+  const myGames = state.games.filter(g => g.winner_id === playerId || g.loser_id === playerId);
+  const elo = computeElo(state);
+  const ids = Object.keys(state.players);
+  const eloOrder = [...ids].sort((a, b) => (elo[b] ?? 1000) - (elo[a] ?? 1000));
+
+  let totalKills = 0, totalDeaths = 0, totalRoundsPlayed = 0, totalRoundsWon = 0;
+  let hasScore = false;
+  for (const g of myGames) {
+    const won = g.winner_id === playerId;
+    const s = won ? g.winner_stats : g.loser_stats;
+    totalKills += s.kills;
+    totalDeaths += s.deaths;
+    if (g.score_winner !== undefined && g.score_loser !== undefined) {
+      hasScore = true;
+      const my = won ? g.score_winner : g.score_loser;
+      const op = won ? g.score_loser : g.score_winner;
+      totalRoundsPlayed += my + op;
+      totalRoundsWon += my;
+    }
+  }
+  const kill_rate = totalRoundsPlayed > 0 ? totalKills / totalRoundsPlayed : 0;
+  const death_rate = totalRoundsPlayed > 0 ? totalDeaths / totalRoundsPlayed : 0;
+  const round_win_rate = totalRoundsPlayed > 0 ? totalRoundsWon / totalRoundsPlayed : 0;
+
+  // Upward / downward WR
+  let upWins = 0, upGames = 0, downWins = 0, downGames = 0;
+  for (const oppId of ids) {
+    if (oppId === playerId) continue;
+    const oppRank = eloOrder.indexOf(oppId);
+    const h2hWins   = myGames.filter(g => g.winner_id === playerId && g.loser_id === oppId).length;
+    const h2hLosses = myGames.filter(g => g.loser_id  === playerId && g.winner_id === oppId).length;
+    const total = h2hWins + h2hLosses;
+    if (total === 0) continue;
+    if (oppRank < playerRank) { upWins += h2hWins; upGames += total; }
+    else                      { downWins += h2hWins; downGames += total; }
+  }
+
+  // Strength of schedule
+  let sosSum = 0, sosCount = 0;
+  for (const g of myGames) {
+    const oppId = g.winner_id === playerId ? g.loser_id : g.winner_id;
+    sosSum += elo[oppId] ?? 1000;
+    sosCount++;
+  }
+
+  // Peak ELO
+  const peak_elo = eloHistory.length > 0 ? Math.max(...eloHistory.map(h => h.elo)) : 1000;
+
+  // ELO volatility
+  let elo_volatility = 0;
+  if (eloHistory.length >= 2) {
+    const deltas = eloHistory.slice(1).map((h, i) => h.elo - eloHistory[i].elo);
+    const dmean = deltas.reduce((a, b) => a + b, 0) / deltas.length;
+    elo_volatility = Math.sqrt(deltas.reduce((s, d) => s + (d - dmean) ** 2, 0) / deltas.length);
+  }
+
+  // Predictability entropy: Shannon entropy of win/loss pattern per opponent
+  let entropy = 0;
+  for (const oppId of ids) {
+    if (oppId === playerId) continue;
+    const h2h = myGames.filter(g =>
+      (g.winner_id === playerId && g.loser_id === oppId) ||
+      (g.loser_id  === playerId && g.winner_id === oppId)
+    );
+    if (h2h.length === 0) continue;
+    const w = h2h.filter(g => g.winner_id === playerId).length;
+    const p = w / h2h.length, q = 1 - p;
+    const weight = h2h.length / Math.max(myGames.length, 1);
+    if (p > 0) entropy -= weight * p * Math.log2(p);
+    if (q > 0) entropy -= weight * q * Math.log2(q);
+  }
+
+  return {
+    kill_rate:               Math.round(kill_rate  * 1000) / 1000,
+    round_win_rate:          Math.round(round_win_rate * 1000) / 1000,
+    efficiency:              Math.round((round_win_rate - kill_rate) * 1000) / 1000,
+    aggression:              Math.round((kill_rate - death_rate)     * 1000) / 1000,
+    upward_wr:               upGames   > 0 ? Math.round((upWins   / upGames)   * 100) / 100 : null,
+    downward_wr:             downGames > 0 ? Math.round((downWins / downGames) * 100) / 100 : null,
+    strength_of_schedule:    sosCount  > 0 ? Math.round(sosSum / sosCount) : 1000,
+    peak_elo,
+    elo_volatility:          Math.round(elo_volatility),
+    predictability_entropy:  Math.min(1, Math.round(entropy * 100) / 100),
+    has_score_data:          hasScore,
+  };
+}
+
+// ─── Dominance Duration ───────────────────────────────────────────────────────
+
+export interface DominanceDuration {
+  current_rank: number;           // 1-indexed
+  days_at_rank: number;
+  games_at_rank: number;
+  peak_rank: number;              // 1-indexed best rank ever
+  rank_trajectory: number[];      // last 10 ranks (1-indexed)
+}
+
+export function computeDominanceDuration(
+  state: GraphState,
+  playerId: string,
+): DominanceDuration | null {
+  const sorted = [...state.games].sort((a, b) => a.timestamp - b.timestamp);
+  if (sorted.length === 0) return null;
+  const ids = Object.keys(state.players);
+
+  const rankHistory: Array<{ rank: number; timestamp: number }> = [];
+  for (let i = 1; i <= sorted.length; i++) {
+    const snap = computeElo({ players: state.players, games: sorted.slice(0, i) });
+    const order = [...ids].sort((a, b) => (snap[b] ?? 1000) - (snap[a] ?? 1000));
+    const rank = order.indexOf(playerId);
+    if (rank !== -1) rankHistory.push({ rank, timestamp: sorted[i - 1].timestamp });
+  }
+  if (rankHistory.length === 0) return null;
+
+  const currentRank = rankHistory[rankHistory.length - 1].rank;
+  const peakRank    = Math.min(...rankHistory.map(h => h.rank));
+
+  let daysAtRank = 0, gamesAtRank = 0;
+  for (let i = rankHistory.length - 1; i >= 0; i--) {
+    if (rankHistory[i].rank !== currentRank) break;
+    gamesAtRank++;
+    if (i > 0) daysAtRank += (rankHistory[i].timestamp - rankHistory[i - 1].timestamp) / 86_400_000;
+  }
+
+  return {
+    current_rank:     currentRank + 1,
+    days_at_rank:     Math.round(daysAtRank),
+    games_at_rank:    gamesAtRank,
+    peak_rank:        peakRank + 1,
+    rank_trajectory:  rankHistory.slice(-10).map(h => h.rank + 1),
+  };
+}
+
+// ─── Information Gain Recommendation ─────────────────────────────────────────
+// Fisher approximation: Sherman-Morrison rank-1 update to BT covariance matrix.
+
+export interface InfoGainEntry {
+  a: string;
+  b: string;
+  info_gain: number;
+  direct_games: number;
+  win_prob: number;               // p(a beats b) from BT
+  label: "VERY HIGH" | "HIGH" | "MED" | "LOW";
+  context: string;
+}
+
+export function computeInformationGain(state: GraphState, bt: BTResult): InfoGainEntry[] {
+  const ids = Object.keys(state.players);
+  const n = ids.length;
+  if (n < 2) return [];
+
+  const SCALE = 400 / Math.log(10);
+  const elo = computeElo(state);
+
+  const candidates: InfoGainEntry[] = [];
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      const ai = ids[i], bi = ids[j];
+      const betaA = bt.beta[ai] ?? 0, betaB = bt.beta[bi] ?? 0;
+      const seA   = bt.se[ai]   ?? 200, seB   = bt.se[bi]   ?? 200;
+
+      const p = 1 / (1 + Math.exp(betaB - betaA));
+      const w = p * (1 - p);                         // Fisher info of one observation
+      const varA = (seA / SCALE) ** 2;               // variance in beta units
+      const varB = (seB / SCALE) ** 2;
+      const info_gain = -((-w * varA * varA / (1 + w * varA)) + (-w * varB * varB / (1 + w * varB)));
+
+      const directGames = state.games.filter(g =>
+        (g.winner_id === ai && g.loser_id === bi) ||
+        (g.winner_id === bi && g.loser_id === ai)
+      ).length;
+
+      const aName = state.players[ai]?.display_name ?? ai;
+      const bName = state.players[bi]?.display_name ?? bi;
+      let context = '';
+      if (directGames === 0) {
+        context = `First direct meeting · ${aName} vs ${bName}`;
+      } else {
+        const lastH2H = [...state.games]
+          .filter(g => (g.winner_id === ai && g.loser_id === bi) || (g.winner_id === bi && g.loser_id === ai))
+          .sort((a, b) => b.timestamp - a.timestamp)[0];
+        if (lastH2H) {
+          const eloThen = computeElo({ players: state.players, games: state.games.filter(g => g.timestamp <= lastH2H.timestamp) });
+          const pThen = 1 / (1 + Math.pow(10, ((eloThen[bi] ?? 1000) - (eloThen[ai] ?? 1000)) / 400));
+          const drift = Math.round(Math.abs(p - pThen) * 100);
+          context = drift > 5
+            ? `Rating drift +${drift}% since last meeting`
+            : `Rematch · ${directGames} prior game${directGames > 1 ? 's' : ''}`;
+        }
+      }
+      candidates.push({ a: ai, b: bi, info_gain, direct_games: directGames, win_prob: Math.round(p * 100) / 100, label: "LOW", context });
+    }
+  }
+
+  candidates.sort((a, b) => b.info_gain - a.info_gain);
+  const maxG = candidates[0]?.info_gain ?? 1;
+  for (const c of candidates) {
+    const norm = maxG > 0 ? c.info_gain / maxG : 0;
+    c.label = norm > 0.75 ? "VERY HIGH" : norm > 0.5 ? "HIGH" : norm > 0.25 ? "MED" : "LOW";
+  }
+  return candidates;
+}
+
+// ─── Retroactive Game Impact ──────────────────────────────────────────────────
+// Impact = reduction in total BT variance (Σ SE²) when this game was added.
+
+export function computeRetroactiveImpact(state: GraphState): Record<string, number> {
+  const sorted = [...state.games].sort((a, b) => a.timestamp - b.timestamp);
+  const n = Object.keys(state.players).length;
+  const DEFAULT_SE = 200;
+
+  function totalVar(games: Game[]): number {
+    if (games.length < 2) return n * DEFAULT_SE ** 2;
+    const bt = computeBradleyTerry({ players: state.players, games });
+    if (!bt) return n * DEFAULT_SE ** 2;
+    return Object.keys(state.players).reduce((s, id) => s + (bt.se[id] ?? DEFAULT_SE) ** 2, 0);
+  }
+
+  const impacts: number[] = sorted.map((_, i) => {
+    const before = totalVar(sorted.slice(0, i));
+    const after  = totalVar(sorted.slice(0, i + 1));
+    return Math.max(0, before - after);
+  });
+
+  const maxImpact = Math.max(...impacts, 1);
+  const result: Record<string, number> = {};
+  sorted.forEach((g, i) => { result[g.id] = impacts[i] / maxImpact; });
+  return result;
+}
+
+// ─── Kingmaker / Leave-One-Out Sensitivity ────────────────────────────────────
+
+export interface KingmakerEntry {
+  player_id: string;
+  display_name: string;
+  kendall_tau_shift: number;      // 1 - tau (higher = more structurally important)
+  max_position_shift: number;
+}
+
+export function computeKingmaker(state: GraphState): KingmakerEntry[] {
+  const ids = Object.keys(state.players);
+  if (ids.length < 3) return [];
+
+  const fullElo = computeElo(state);
+  const fullOrder = [...ids].sort((a, b) => (fullElo[b] ?? 1000) - (fullElo[a] ?? 1000));
+
+  return ids.map(removedId => {
+    const remaining = ids.filter(id => id !== removedId);
+    const redPlayers: Record<string, Player> = {};
+    for (const id of remaining) { if (state.players[id]) redPlayers[id] = state.players[id]; }
+    const redGames = state.games.filter(g => g.winner_id !== removedId && g.loser_id !== removedId);
+    const redElo = computeElo({ players: redPlayers, games: redGames });
+    const redOrder = [...remaining].sort((a, b) => (redElo[b] ?? 1000) - (redElo[a] ?? 1000));
+
+    const fullWithout = fullOrder.filter(id => id !== removedId);
+    const tau = kendallTauAgreement(fullWithout, redOrder);
+    const maxShift = remaining.reduce((mx, id) => {
+      const before = fullWithout.indexOf(id), after = redOrder.indexOf(id);
+      return before !== -1 && after !== -1 ? Math.max(mx, Math.abs(after - before)) : mx;
+    }, 0);
+
+    return {
+      player_id:          removedId,
+      display_name:       state.players[removedId]?.display_name ?? removedId,
+      kendall_tau_shift:  Math.round((1 - tau) * 100) / 100,
+      max_position_shift: maxShift,
+    };
+  }).sort((a, b) => b.kendall_tau_shift - a.kendall_tau_shift);
+}
+
+// ─── Pool Calibration Curve ───────────────────────────────────────────────────
+
+export interface CalibrationBucket {
+  predicted_mid: number;  // center of probability bucket
+  actual_rate: number;    // fraction where higher-ELO player won
+  n: number;
+}
+
+export function computeCalibrationCurve(state: GraphState): CalibrationBucket[] {
+  const sorted = [...state.games].sort((a, b) => a.timestamp - b.timestamp);
+  const buckets: { sum: number; n: number }[] = Array.from({ length: 4 }, () => ({ sum: 0, n: 0 }));
+  const edges = [0.5, 0.6, 0.7, 0.8, 1.0];
+
+  for (let i = 2; i < sorted.length; i++) {
+    const g = sorted[i];
+    const hist = computeElo({ players: state.players, games: sorted.slice(0, i) });
+    const rW = hist[g.winner_id] ?? 1000, rL = hist[g.loser_id] ?? 1000;
+    const rHigh = Math.max(rW, rL);
+    const pred = 1 / (1 + Math.pow(10, ((rHigh === rW ? rL : rW) - rHigh) / 400));
+    const actual = rW >= rL ? 1 : 0;
+    const bi = edges.findIndex((e, i) => i < edges.length - 1 && pred >= edges[i] && pred < edges[i + 1]);
+    if (bi >= 0) { buckets[bi].sum += actual; buckets[bi].n++; }
+  }
+
+  return buckets
+    .map((b, i) => ({ predicted_mid: (edges[i] + edges[i + 1]) / 2, actual_rate: b.n > 0 ? b.sum / b.n : 0, n: b.n }))
+    .filter(b => b.n > 0);
+}
+
+// ─── Permutation Test ─────────────────────────────────────────────────────────
+
+export interface PermutationTestResult {
+  p_value: number;
+  significant: boolean;
+  label: string;
+}
+
+export function computePermutationTest(state: GraphState, nPermutations = 200): PermutationTestResult | null {
+  if (state.games.length < 6 || Object.keys(state.players).length < 3) return null;
+  const bt = computeBradleyTerry(state);
+  if (!bt) return null;
+
+  function btLogLik(games: Game[], beta: Record<string, number>): number {
+    return games.reduce((ll, g) => {
+      const p = 1 / (1 + Math.exp((beta[g.loser_id] ?? 0) - (beta[g.winner_id] ?? 0)));
+      return ll + Math.log(Math.max(1e-10, p));
+    }, 0);
+  }
+
+  const realLL = btLogLik(state.games, bt.beta);
+  let moreExtreme = 0;
+  for (let p = 0; p < nPermutations; p++) {
+    const shuffled: Game[] = state.games.map(g =>
+      Math.random() < 0.5
+        ? { ...g, winner_id: g.loser_id, loser_id: g.winner_id, winner_stats: g.loser_stats, loser_stats: g.winner_stats }
+        : g
+    );
+    const pb = computeBradleyTerry({ players: state.players, games: shuffled });
+    if (pb && btLogLik(shuffled, pb.beta) >= realLL) moreExtreme++;
+  }
+
+  const pv = moreExtreme / nPermutations;
+  return {
+    p_value:     Math.round(pv * 100) / 100,
+    significant: pv < 0.05,
+    label:       pv < 0.05
+      ? `SIGNIFICANT (p=${pv.toFixed(2)}) — rankings reflect real skill structure`
+      : `NOT SIGNIFICANT (p=${pv.toFixed(2)}) — insufficient data to confirm real signal`,
+  };
+}
+
 // ─── Upset Alert ──────────────────────────────────────────────────────────────
 
 export function computeUpsetAlert(
