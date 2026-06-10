@@ -409,13 +409,8 @@ function roundWinRate(P: number, target = 7): number {
 
 function predictScore(p_a_wins: number, target = 7): { aKills: number; bKills: number } {
   const p = roundWinRate(Math.max(0.001, Math.min(0.999, p_a_wins)), target);
-  let expRounds = 0;
-  for (let k = target; k <= 2 * target - 1; k++) {
-    const pA = binomCoeff(k - 1, target - 1) * Math.pow(p, target) * Math.pow(1 - p, k - target);
-    const pB = binomCoeff(k - 1, target - 1) * Math.pow(1 - p, target) * Math.pow(p, k - target);
-    expRounds += k * (pA + pB);
-  }
-  const loser = Math.max(0, Math.round(expRounds - target));
+  // E[loser rounds] = NB(target, p) mean = target*(1-p)/p, capped at target-1
+  const loser = Math.min(target - 1, Math.max(0, Math.round(target * (1 - p) / p)));
   return p_a_wins >= 0.5
     ? { aKills: target, bKills: loser }
     : { aKills: loser, bKills: target };
