@@ -478,7 +478,9 @@ body.light .navbar { background: color-mix(in srgb, #edf2f7 85%, transparent); }
   from { opacity: 0; transform: translateY(6px); }
   to   { opacity: 1; transform: translateY(0); }
 }
-.fade-in { animation: fadeIn 0.25s ease forwards; }
+/* No `forwards`: a retained transform would create a stacking context that
+   traps tooltips below the sticky navbar. End state equals natural state. */
+.fade-in { animation: fadeIn 0.25s ease; }
 
 .gradient-bar {
   height: 2px;
