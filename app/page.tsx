@@ -50,7 +50,6 @@ function EloChart({
   const ticks = Array.from({ length: 5 }, (_, i) => Math.round(minElo + (i / 4) * (maxElo - minElo)));
   return (
     <div>
-      <div className="section-label" style={{ marginBottom: 8 }}>ELO HISTORY</div>
       <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ display: "block", overflow: "visible" }}>
         {ticks.map(e => (
           <g key={e}>
@@ -123,7 +122,6 @@ function GraphViz({ state, elo }: { state: { players: Record<string, { display_n
 
   return (
     <div>
-      <div className="section-label" style={{ marginBottom: 8 }}>GRAPH STRUCTURE</div>
       <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ display: "block", maxWidth: 500, margin: "0 auto" }}>
         <defs>
           <marker id="arr-w" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
@@ -177,7 +175,7 @@ function GraphViz({ state, elo }: { state: { players: Record<string, { display_n
             <div key={id} style={{ display: "flex", alignItems: "center", gap: 6 }}>
               <svg width={12} height={12}><circle cx={6} cy={6} r={5} fill="none" stroke="var(--win)" strokeWidth={1.5} strokeDasharray="3 1.5" /></svg>
               <span className="font-mono" style={{ fontSize: "0.80rem", color: "var(--win)" }}>
-                SOURCE — {(state.players[id] as { display_name: string })?.display_name} beats all opponents in graph
+                APEX — {(state.players[id] as { display_name: string })?.display_name} has beaten everyone they&apos;ve faced
               </span>
             </div>
           ))}
@@ -185,7 +183,7 @@ function GraphViz({ state, elo }: { state: { players: Record<string, { display_n
             <div key={id} style={{ display: "flex", alignItems: "center", gap: 6 }}>
               <svg width={12} height={12}><circle cx={6} cy={6} r={5} fill="none" stroke="var(--lose)" strokeWidth={1.5} strokeDasharray="3 1.5" /></svg>
               <span className="font-mono" style={{ fontSize: "0.80rem", color: "var(--lose)" }}>
-                SINK — {(state.players[id] as { display_name: string })?.display_name} beaten by all opponents in graph
+                WINLESS — {(state.players[id] as { display_name: string })?.display_name} has lost to everyone they&apos;ve faced
               </span>
             </div>
           ))}
@@ -416,6 +414,69 @@ function predictScore(p_a_wins: number, target = 7): { aKills: number; bKills: n
     : { aKills: loser, bKills: target };
 }
 
+/* ── UI helpers: plain-language interpretation layer ── */
+
+function Tip({ tip, align, children, block }: { tip: string; align?: "left" | "right"; children: React.ReactNode; block?: boolean }) {
+  const cls = `tip${align === "right" ? " tip-right" : align === "left" ? " tip-left" : ""}`;
+  return <span className={cls} data-tip={tip} style={block ? { display: "block" } : undefined}>{children}</span>;
+}
+
+function StatCard({ label, value, sub, color, tip }: {
+  label: string; value: React.ReactNode; sub?: React.ReactNode; color?: string; tip?: string;
+}) {
+  const card = (
+    <div className="stat-card" style={{ height: "100%" }}>
+      <div className="stat-label">{label}{tip && <span className="info-dot">i</span>}</div>
+      <div className="stat-value" style={color ? { color } : undefined}>{value}</div>
+      {sub && <div className="stat-sub">{sub}</div>}
+    </div>
+  );
+  return tip ? <Tip tip={tip} block>{card}</Tip> : card;
+}
+
+function MiniStat({ label, value, sub, color, tip }: {
+  label: string; value: React.ReactNode; sub?: React.ReactNode; color?: string; tip?: string;
+}) {
+  const card = (
+    <div className="mini-stat" style={{ height: "100%" }}>
+      <div className="stat-label">{label}</div>
+      <div className="stat-value" style={color ? { color } : undefined}>{value}</div>
+      {sub && <div className="stat-sub">{sub}</div>}
+    </div>
+  );
+  return tip ? <Tip tip={tip} block>{card}</Tip> : card;
+}
+
+function SectionHead({ title, sub }: { title: string; sub?: string }) {
+  return (
+    <div className="section-head">
+      <span className="title">{title}</span>
+      {sub && <span className="sub">{sub}</span>}
+      <div className="rule" />
+    </div>
+  );
+}
+
+// Kendall τ (−1..1) → share of player pairs the two rankings order identically
+function tauAgreement(tau: number): number {
+  return Math.round(((tau + 1) / 2) * 100);
+}
+
+// Katz evidence mass → plain-language strength of the win-path evidence
+function evidenceLabel(mass: number, directGames: number): { label: string; color: string; gloss: string } {
+  if (directGames >= 3) return { label: "STRONG", color: "var(--win)", gloss: "several head-to-head games" };
+  if (directGames >= 1 && mass > 0.3) return { label: "SOLID", color: "var(--win)", gloss: "head-to-head plus connecting wins" };
+  if (directGames >= 1) return { label: "MODERATE", color: "var(--neutral)", gloss: "limited head-to-head data" };
+  if (mass > 0.3) return { label: "INDIRECT", color: "var(--neutral)", gloss: "no meetings — inferred through shared opponents" };
+  if (mass > 0) return { label: "THIN", color: "var(--lose)", gloss: "weak indirect evidence only" };
+  return { label: "NONE", color: "var(--lose)", gloss: "stat profile only — no game evidence" };
+}
+
+// Info-gain label → star display
+function gainStars(label: string): string {
+  return label === "VERY HIGH" ? "★★★" : label === "HIGH" ? "★★" : label === "MED" ? "★" : "·";
+}
+
 function generatePowerBlurb(
   ranking: RankEntry[],
   state: GraphState,
@@ -556,7 +617,6 @@ function PlayerScatterPlot({ ranking }: { ranking: RankEntry[] }) {
 
   return (
     <div>
-      <div className="section-label" style={{ marginBottom: 8 }}>PLAYER LANDSCAPE — KD × WIN RATE (bubble = games played)</div>
       <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ display: "block", overflow: "visible" }}>
         {/* Grid */}
         {wrTicks.map(v => (
@@ -877,140 +937,166 @@ export default function Home() {
   const winsGames   = historyFilter ? allGamesReversed.filter(g => g.winner_id === historyFilter) : [];
   const lossesGames = historyFilter ? allGamesReversed.filter(g => g.loser_id  === historyFilter) : [];
 
+  const TAB_LABELS: Record<Tab, string> = {
+    ranking: "Leaderboard", log: "Log Game", matchup: "Matchup Lab", history: "History", players: "Roster", system: "Engine Room",
+  };
+
   return (
-    <div style={{ minHeight: "100vh", padding: "28px 32px", maxWidth: 980, margin: "0 auto" }}>
+    <div style={{ minHeight: "100vh", position: "relative", zIndex: 1 }}>
       {/* Header */}
-      <div style={{ marginBottom: 24 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
+      <div style={{ maxWidth: 1080, margin: "0 auto", padding: "26px 32px 0" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
           <div className="live-indicator" />
-          <span className="font-mono" style={{ fontSize: "0.80rem", color: "var(--accent)", letterSpacing: "0.2em" }}>
-            GRAPHELO // R6 CUSTOM 1v1
+          <span className="font-mono" style={{ fontSize: "0.78rem", color: "var(--accent)", letterSpacing: "0.22em" }}>
+            R6 CUSTOM 1v1 // GRAPH-RATED
           </span>
-          <button onClick={toggleTheme} className="btn" style={{ marginLeft: "auto", padding: "1px 8px", fontSize: "0.80rem", letterSpacing: "0.12em" }}>
+          <button onClick={toggleTheme} className="btn btn-ghost" style={{ marginLeft: "auto", padding: "1px 9px", fontSize: "0.78rem", letterSpacing: "0.12em" }}>
             {theme === "dark" ? "◑ LIGHT" : "◑ DARK"}
           </button>
         </div>
-        <div className="gradient-bar" style={{ marginBottom: 8 }} />
-        <div style={{ display: "flex", alignItems: "baseline", gap: 12 }}>
-          <h1 className="font-display" style={{ fontSize: "2rem", fontWeight: 700, color: "var(--text-bright)", letterSpacing: "0.05em" }}>
-            GRAPH<span style={{ color: "var(--accent)" }}>ELO</span>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 14, marginBottom: 14 }}>
+          <h1 className="font-display" style={{ fontSize: "2.3rem", fontWeight: 700, color: "var(--text-bright)", letterSpacing: "0.06em", lineHeight: 1 }}>
+            GRAPH<span style={{ color: "var(--accent)", textShadow: "0 0 24px color-mix(in srgb, var(--accent) 50%, transparent)" }}>ELO</span>
           </h1>
-          <span className="font-mono" style={{ fontSize: "0.84rem", color: "var(--text-dim)" }}>
+          <span className="font-mono" style={{ fontSize: "0.84rem", color: "var(--text-dim)", letterSpacing: "0.08em" }}>
             {players.length} PLAYERS · {state.games.length} GAMES
           </span>
         </div>
       </div>
 
+      {/* Sticky tab bar */}
+      <div className="navbar">
+        <div style={{ maxWidth: 1080, margin: "0 auto", padding: "0 32px", display: "flex", overflowX: "auto" }}>
+          {(["ranking", "log", "matchup", "history", "players", "system"] as Tab[]).map(t => (
+            <button key={t} className={`tab ${tab === t ? "active" : ""}`} onClick={() => setTab(t)}>{TAB_LABELS[t]}</button>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ maxWidth: 1080, margin: "0 auto", padding: "22px 32px 0" }}>
+
       {error && (
-        <div style={{ marginBottom: 14, padding: "7px 12px", border: "1px solid var(--lose)", color: "var(--lose)", fontSize: "0.94rem", fontFamily: "Share Tech Mono", display: "flex", justifyContent: "space-between" }}>
+        <div style={{ marginBottom: 14, padding: "8px 12px", border: "1px solid var(--lose)", borderRadius: 6, color: "var(--lose)", fontSize: "0.94rem", fontFamily: "Share Tech Mono", display: "flex", justifyContent: "space-between", background: "color-mix(in srgb, var(--lose) 6%, transparent)" }}>
           <span>⚠ {error}</span>
           <button onClick={() => setError("")} style={{ background: "none", border: "none", color: "var(--text-dim)", cursor: "pointer" }}>×</button>
         </div>
       )}
-
-      {/* Tabs */}
-      <div style={{ display: "flex", borderBottom: "1px solid var(--border)", marginBottom: 20 }}>
-        {(["ranking", "log", "matchup", "history", "players", "system"] as Tab[]).map(t => (
-          <button key={t} className={`tab ${tab === t ? "active" : ""}`} onClick={() => setTab(t)}>{t}</button>
-        ))}
-      </div>
 
       {loading && <div className="font-mono" style={{ color: "var(--text-dim)", fontSize: "0.8rem" }}>LOADING...</div>}
 
       {/* ── RANKING ── */}
       {!loading && tab === "ranking" && (
         <div className="fade-in">
-          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8, flexWrap: "wrap" }}>
-            <div className="section-label">ROUND ROBIN RANKING</div>
-            <span className="font-mono" style={{ fontSize: "0.80rem", color: "var(--text-dim)" }}>KATZ β=0.5 · 1000-MC</span>
-            {looCv && looCv.n >= 3 && (
-              <span className="font-mono" style={{ fontSize: "0.80rem", color: looCv.brier_skill > 0.1 ? "var(--win)" : "var(--text-dim)" }}>
-                LOO {Math.round(looCv.accuracy * 100)}% · BRIER {looCv.brier_score.toFixed(2)} · SKILL +{Math.round(looCv.brier_skill * 100)}%
-              </span>
-            )}
-            {!looCv && predAccuracy && predAccuracy.total >= 3 && (
-              <span className="font-mono" style={{ fontSize: "0.80rem", color: "var(--text-dim)" }}>
-                IN-SAMPLE {Math.round(predAccuracy.correct / predAccuracy.total * 100)}% ({predAccuracy.correct}/{predAccuracy.total})
-              </span>
-            )}
-            {metaStability !== null && (
-              <span className="font-mono" style={{ fontSize: "0.80rem", color: metaStability > 0.7 ? "var(--win)" : metaStability > 0.4 ? "var(--neutral)" : "var(--lose)" }}>
-                META {Math.round(metaStability * 100)}% {metaStability > 0.7 ? "STABLE" : metaStability > 0.4 ? "SHIFTING" : "VOLATILE"}
-              </span>
-            )}
-            <div style={{ marginLeft: "auto", display: "flex", gap: 5, alignItems: "center" }}>
-              {(["tour", "elo"] as const).map(s => (
-                <button key={s} className="btn" onClick={() => setRankSort(s)} style={{ padding: "2px 8px", fontSize: "0.82rem", background: rankSort === s ? "var(--accent)" : undefined, color: rankSort === s ? "#000" : undefined }}>
-                  {s === "tour" ? "CHAMP%" : "ELO"}
-                </button>
-              ))}
-              <button className="btn" style={{ padding: "3px 8px", fontSize: "0.7rem" }} onClick={() => computeRanking(state)}>↺</button>
-            </div>
-          </div>
-          {/* Parity + skill gap banner */}
-          {Object.keys(state.players).length >= 2 && state.games.length >= 4 && (() => {
+          {/* Pool health — plain-language model status */}
+          {state.games.length >= 4 && Object.keys(state.players).length >= 2 && (() => {
             const parity = computeParityIndex(state, champCounts, 1000);
+            const parityPct = Math.round(parity.normalized_parity * 100);
+            const looPct = looCv ? Math.round(looCv.accuracy * 100) : null;
+            const inSamplePct = predAccuracy && predAccuracy.total >= 3 ? Math.round(predAccuracy.correct / predAccuracy.total * 100) : null;
             return (
-              <div style={{ display: "flex", gap: 16, marginBottom: 14, flexWrap: "wrap" }}>
-                <span className="font-mono" style={{ fontSize: "0.80rem", color: "var(--text-dim)" }}>
-                  PARITY <span style={{ color: parity.normalized_parity > 0.7 ? "var(--win)" : parity.normalized_parity > 0.4 ? "var(--neutral)" : "var(--lose)" }}>{Math.round(parity.normalized_parity * 100)}%</span>
-                  {" · "}ELO SPREAD <span style={{ color: "var(--text-bright)" }}>±{Math.round(parity.elo_spread)}pts</span>
-                  {skillGap && <> {" · "}FIELD <span style={{ color: skillGap.trend === "CONVERGING" ? "var(--win)" : skillGap.trend === "DIVERGING" ? "var(--lose)" : "var(--text-dim)" }}>{skillGap.trend} {skillGap.trend === "CONVERGING" ? "↓" : skillGap.trend === "DIVERGING" ? "↑" : "→"}</span></>}
-                </span>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(195px, 1fr))", gap: 10, marginBottom: 18 }}>
+                {looPct !== null && looCv && looCv.n >= 3 ? (
+                  <StatCard
+                    label="PREDICTION ACCURACY"
+                    value={`${looPct}%`}
+                    color={looPct >= 60 ? "var(--win)" : looPct >= 50 ? "var(--neutral)" : "var(--lose)"}
+                    sub="of results called right · 50% = coin flip"
+                    tip={`Honest test: each of ${looCv.n} games was hidden from the model, then predicted cold. Error score ${looCv.brier_score.toFixed(2)} (lower is better, 0.25 = pure guessing) — ${Math.round(looCv.brier_skill * 100)}% better than chance.`}
+                  />
+                ) : inSamplePct !== null ? (
+                  <StatCard
+                    label="PREDICTION ACCURACY"
+                    value={`${inSamplePct}%`}
+                    sub={`of results called right (${predAccuracy!.correct}/${predAccuracy!.total})`}
+                    tip="Measured on games the model has already seen — slightly optimistic until more games are logged."
+                  />
+                ) : null}
+                {metaStability !== null && (
+                  <StatCard
+                    label="STANDINGS"
+                    value={metaStability > 0.7 ? "STABLE" : metaStability > 0.4 ? "SHIFTING" : "VOLATILE"}
+                    color={metaStability > 0.7 ? "var(--win)" : metaStability > 0.4 ? "var(--neutral)" : "var(--lose)"}
+                    sub={metaStability > 0.7 ? "rank order is holding firm" : metaStability > 0.4 ? "recent games are reshuffling ranks" : "ranks are churning game to game"}
+                    tip={`Rank order has stayed ${Math.round(metaStability * 100)}% consistent across recent games.`}
+                  />
+                )}
+                <StatCard
+                  label="COMPETITIVENESS"
+                  value={`${parityPct}%`}
+                  color={parityPct > 70 ? "var(--win)" : parityPct > 40 ? "var(--neutral)" : "var(--lose)"}
+                  sub={parityPct > 70 ? "anyone's title — wide open" : parityPct > 40 ? "a few clear contenders" : "top-heavy — one player dominates"}
+                  tip={`How evenly title odds are spread across the pool over 1000 simulated tournaments. 100% = everyone has equal odds. Rating spread between players: ±${Math.round(parity.elo_spread)} pts.`}
+                />
+                {skillGap && (
+                  <StatCard
+                    label="SKILL GAP"
+                    value={skillGap.trend === "CONVERGING" ? "NARROWING ↓" : skillGap.trend === "DIVERGING" ? "WIDENING ↑" : "HOLDING →"}
+                    color={skillGap.trend === "CONVERGING" ? "var(--win)" : skillGap.trend === "DIVERGING" ? "var(--lose)" : "var(--text-dim)"}
+                    sub={skillGap.trend === "CONVERGING" ? "the field is catching up" : skillGap.trend === "DIVERGING" ? "the strong are pulling away" : "gap between top and bottom is steady"}
+                    tip={`Spread between strongest and weakest is moving ${skillGap.slope > 0 ? "+" : ""}${skillGap.slope} rating points per game.`}
+                  />
+                )}
               </div>
             );
           })()}
 
-          {/* Play This Next — top info gain matchups */}
-          {infoGain.length > 0 && state.games.length > 0 && (
-            <div className="panel" style={{ padding: "11px 16px", marginBottom: 14, borderColor: "var(--accent3)" }}>
-              <div className="section-label" style={{ marginBottom: 8, color: "var(--accent3)" }}>PLAY THIS NEXT</div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-                {infoGain.slice(0, 3).map((ig, idx) => {
-                  const aName = state.players[ig.a]?.display_name ?? ig.a;
-                  const bName = state.players[ig.b]?.display_name ?? ig.b;
-                  const simA = h2hSim[ig.a]?.[ig.b];
-                  const pA = simA !== undefined ? simA / 1000 : ig.win_prob;
-                  const favored = pA >= 0.5 ? aName : bName;
-                  const favProb = pA >= 0.5 ? pA : 1 - pA;
-                  return (
-                    <div key={idx} style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                      <span className="font-mono" style={{ fontSize: "0.78rem", color: "var(--accent3)", minWidth: 12 }}>#{idx + 1}</span>
-                      <span className="font-mono" style={{ fontSize: "0.82rem", color: "var(--text-dim)", border: "1px solid var(--accent3)", padding: "0 4px" }}>{ig.label}</span>
-                      <span className="player-name" style={{ fontSize: "0.88rem" }}>{aName}</span>
-                      <span className="font-mono" style={{ fontSize: "0.80rem", color: "var(--text-dim)" }}>vs</span>
-                      <span className="player-name" style={{ fontSize: "0.88rem" }}>{bName}</span>
-                      <span className="font-mono" style={{ fontSize: "0.78rem", color: "var(--text-dim)", flex: 1 }}>{ig.context}</span>
-                      <span className="font-mono" style={{ fontSize: "0.78rem", color: "var(--text-dim)", flexShrink: 0 }}>
-                        {favored} {(favProb * 100).toFixed(1)}% fav
-                      </span>
-                      <button className="btn" style={{ padding: "1px 6px", fontSize: "0.74rem", flexShrink: 0 }}
-                        onClick={() => { setPredA(ig.a); setPredB(ig.b); setPrediction(predictPairwise(state, ig.a, ig.b)); setTab("matchup"); }}>
-                        →
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {mostInteresting && state.games.length > 0 && (
-            <div className="panel" style={{ padding: "11px 16px", marginBottom: 14, display: "flex", alignItems: "center", gap: 14, borderColor: "var(--accent)" }}>
-              <div style={{ flex: 1 }}>
-                <div className="section-label" style={{ marginBottom: 5, color: "var(--accent)" }}>CLOSEST MATCHUP</div>
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <span className="player-name">{mostInteresting.a.display_name}</span>
-                  <span className="font-mono" style={{ fontSize: "0.90rem", color: "var(--text-dim)" }}>
-                    {pct(mostInteresting.p, 1)} · {pct(1 - mostInteresting.p, 1)}
-                  </span>
-                  <span className="player-name">{mostInteresting.b.display_name}</span>
+          {/* Up next: most informative games + closest matchup */}
+          {state.games.length > 0 && (infoGain.length > 0 || mostInteresting) && (
+            <div style={{ display: "grid", gridTemplateColumns: infoGain.length > 0 && mostInteresting ? "minmax(0, 1.7fr) minmax(0, 1fr)" : "1fr", gap: 10, marginBottom: 18, alignItems: "stretch" }}>
+              {infoGain.length > 0 && (
+                <div className="panel panel-accent3 panel-feature" style={{ padding: "12px 16px" }}>
+                  <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 9 }}>
+                    <span className="section-label" style={{ color: "var(--accent3)" }}>PLAY THIS NEXT</span>
+                    <Tip tip="Ranked by how much each result would sharpen the ratings — uncertain, stale, or never-played matchups teach the model the most." align="left">
+                      <span className="font-mono" style={{ fontSize: "0.74rem", color: "var(--text-dim)" }}>the games that would teach the ratings the most <span className="info-dot">i</span></span>
+                    </Tip>
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+                    {infoGain.slice(0, 3).map((ig, idx) => {
+                      const aName = state.players[ig.a]?.display_name ?? ig.a;
+                      const bName = state.players[ig.b]?.display_name ?? ig.b;
+                      const simA = h2hSim[ig.a]?.[ig.b];
+                      const pA = simA !== undefined ? simA / 1000 : ig.win_prob;
+                      const favored = pA >= 0.5 ? aName : bName;
+                      const favProb = pA >= 0.5 ? pA : 1 - pA;
+                      return (
+                        <div key={idx} style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+                          <Tip tip={`Learning value: ${ig.label}`}>
+                            <span className="font-mono" style={{ fontSize: "0.84rem", color: "var(--accent3)", minWidth: 30, letterSpacing: "0.05em" }}>{gainStars(ig.label)}</span>
+                          </Tip>
+                          <span className="player-name" style={{ fontSize: "0.95rem" }}>{aName}</span>
+                          <span className="font-mono" style={{ fontSize: "0.78rem", color: "var(--text-dim)" }}>vs</span>
+                          <span className="player-name" style={{ fontSize: "0.95rem" }}>{bName}</span>
+                          <span className="font-mono" style={{ fontSize: "0.76rem", color: "var(--text-dim)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>{ig.context}</span>
+                          <span className="font-mono" style={{ fontSize: "0.78rem", color: "var(--text-dim)", flexShrink: 0 }}>
+                            {favored} {(favProb * 100).toFixed(1)}%
+                          </span>
+                          <button className="btn" style={{ padding: "1px 7px", fontSize: "0.74rem", flexShrink: 0 }}
+                            onClick={() => { setPredA(ig.a); setPredB(ig.b); setPrediction(predictPairwise(state, ig.a, ig.b)); setTab("matchup"); }}>
+                            →
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
-              <button className="btn" style={{ padding: "3px 10px", fontSize: "0.7rem", flexShrink: 0 }}
-                onClick={() => { setPredA(mostInteresting!.a.player_id); setPredB(mostInteresting!.b.player_id); setPrediction(predictPairwise(state, mostInteresting!.a.player_id, mostInteresting!.b.player_id)); setTab("matchup"); }}>
-                ANALYZE →
-              </button>
+              )}
+              {mostInteresting && (
+                <div className="panel panel-feature" style={{ padding: "12px 16px", display: "flex", flexDirection: "column", gap: 8, borderColor: "var(--border2)" }}>
+                  <span className="section-label" style={{ color: "var(--accent)" }}>CLOSEST MATCHUP</span>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", flex: 1 }}>
+                    <span className="player-name" style={{ fontSize: "1.0rem" }}>{mostInteresting.a.display_name}</span>
+                    <span className="font-mono" style={{ fontSize: "0.88rem", color: "var(--neutral)" }}>
+                      {pct(mostInteresting.p, 1)} · {pct(1 - mostInteresting.p, 1)}
+                    </span>
+                    <span className="player-name" style={{ fontSize: "1.0rem" }}>{mostInteresting.b.display_name}</span>
+                  </div>
+                  <button className="btn" style={{ padding: "3px 10px", fontSize: "0.74rem", alignSelf: "flex-start" }}
+                    onClick={() => { setPredA(mostInteresting!.a.player_id); setPredB(mostInteresting!.b.player_id); setPrediction(predictPairwise(state, mostInteresting!.a.player_id, mostInteresting!.b.player_id)); setTab("matchup"); }}>
+                    ANALYZE →
+                  </button>
+                </div>
+              )}
             </div>
           )}
 
@@ -1024,18 +1110,45 @@ export default function Home() {
               {(() => {
                 const blurb = generatePowerBlurb(ranking, state, eloHistory);
                 return blurb ? (
-                  <div className="panel" style={{ padding: "10px 14px", marginBottom: 10, borderColor: "var(--border2)" }}>
-                    <div className="section-label" style={{ marginBottom: 5, color: "var(--accent)" }}>POWER RANKINGS</div>
-                    <p className="font-mono" style={{ fontSize: "0.90rem", color: "var(--text)", lineHeight: 1.65 }}>{blurb}</p>
+                  <div className="panel panel-accent2" style={{ padding: "11px 16px", marginBottom: 18 }}>
+                    <div className="section-label" style={{ marginBottom: 5, color: "var(--accent2)" }}>THE STORYLINE</div>
+                    <p style={{ fontSize: "0.96rem", color: "var(--text)", lineHeight: 1.6 }}>{blurb}</p>
                   </div>
                 ) : null;
               })()}
 
-              {/* Table header */}
-              <div style={{ display: "grid", gridTemplateColumns: "28px 1fr 64px 72px 56px 64px 64px 64px 72px", gap: 10, padding: "5px 12px", marginBottom: 4 }}>
-                {["#", "PLAYER", "WIN%", "CHAMP%", "ELO", "KD", "KPG", "FORM", "W-L"].map((h, i) => (
-                  <span key={h} className="section-label" style={{ textAlign: i > 1 ? "right" : "left" }}>{h}</span>
+              {/* Leaderboard header + controls */}
+              <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10 }}>
+                <span className="font-display" style={{ fontSize: "1.02rem", fontWeight: 700, letterSpacing: "0.14em", color: "var(--text-bright)" }}>LEADERBOARD</span>
+                <div style={{ flex: 1, height: 1, background: "linear-gradient(90deg, var(--border), transparent)" }} />
+                <span className="font-mono" style={{ fontSize: "0.74rem", color: "var(--text-dim)" }}>SORT</span>
+                {(["tour", "elo"] as const).map(s => (
+                  <button key={s} className="btn" onClick={() => setRankSort(s)} style={{ padding: "2px 9px", fontSize: "0.78rem", background: rankSort === s ? "var(--accent)" : undefined, color: rankSort === s ? "#000" : undefined }}>
+                    {s === "tour" ? "TITLE ODDS" : "RATING"}
+                  </button>
                 ))}
+                <button className="btn btn-ghost" title="Recompute rankings" style={{ padding: "3px 8px", fontSize: "0.74rem" }} onClick={() => computeRanking(state)}>↺</button>
+              </div>
+
+              {/* Table header */}
+              <div style={{ display: "grid", gridTemplateColumns: "34px 1fr 64px 78px 64px 56px 56px 64px 64px", gap: 10, padding: "0 16px 5px", marginBottom: 2 }}>
+                <span className="section-label">#</span>
+                <span className="section-label">PLAYER</span>
+                <span className="section-label" style={{ textAlign: "right" }}>WIN%</span>
+                <Tip tip="Share of 1000 simulated round-robin tournaments this player wins outright. The bars show where they tend to finish." align="right">
+                  <span className="section-label" style={{ textAlign: "right", display: "block" }}>TITLE ODDS</span>
+                </Tip>
+                <Tip tip="ELO rating (1000 = average). Dot = how much data backs it · arrow = current trajectory." align="right">
+                  <span className="section-label" style={{ textAlign: "right", display: "block" }}>RATING</span>
+                </Tip>
+                <span className="section-label" style={{ textAlign: "right" }}>K/D</span>
+                <Tip tip="Average kills per game." align="right">
+                  <span className="section-label" style={{ textAlign: "right", display: "block" }}>KILLS/G</span>
+                </Tip>
+                <Tip tip="Recent form vs overall rating. +12 means they're currently playing 12 points above their rating — hot. Negative = cold." align="right">
+                  <span className="section-label" style={{ textAlign: "right", display: "block" }}>FORM</span>
+                </Tip>
+                <span className="section-label" style={{ textAlign: "right" }}>W–L</span>
               </div>
 
               {sortedRanking.map((r, i) => {
@@ -1045,22 +1158,21 @@ export default function Home() {
                 const isSelected = selectedPlayer === r.player_id;
                 const archetype = computeArchetype(r.player_id, sortedRanking, state, eloHistory);
                 return (
-                  <div key={r.player_id} style={{ marginBottom: 1 }}>
-                    <div className="panel corner-tl" onClick={() => setSelectedPlayer(isSelected ? null : r.player_id)} style={{
+                  <div key={r.player_id} style={{ marginBottom: 3 }}>
+                    <div className={`panel panel-plain panel-hover lb-row ${isTop ? "lb-top" : ""}`} onClick={() => setSelectedPlayer(isSelected ? null : r.player_id)} style={{
                       display: "grid",
-                      gridTemplateColumns: "28px 1fr 64px 72px 56px 64px 64px 64px 72px",
-                      gap: 10, padding: "15px 16px", alignItems: "center",
-                      cursor: "pointer",
-                      borderColor: isSelected ? "var(--accent)" : isTop ? "var(--accent)" : undefined,
+                      gridTemplateColumns: "34px 1fr 64px 78px 64px 56px 56px 64px 64px",
+                      gap: 10, padding: "14px 16px", alignItems: "center",
+                      borderColor: isSelected ? "var(--accent)" : undefined,
                     }}>
-                      <span className="rank-number" style={{ color: isTop ? "var(--accent)" : undefined, fontWeight: isTop ? 700 : undefined }}>
+                      <span className="rank-number" style={{ color: isTop ? "var(--accent)" : i < 3 ? "var(--text-bright)" : undefined }}>
                         {i + 1}
                       </span>
                       <div>
                         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                           <div className="player-name" style={{ color: isTop ? "var(--accent)" : undefined }}>{r.display_name}</div>
                           {streak.count > 0 && (
-                            <span className="font-mono" style={{ fontSize: "0.76rem", padding: "1px 4px", border: "1px solid", borderColor: streak.win ? "var(--win)" : "var(--lose)", color: streak.win ? "var(--win)" : "var(--lose)", lineHeight: 1.4, flexShrink: 0 }}>
+                            <span className="chip" title={`${streak.count} ${streak.win ? "wins" : "losses"} in a row`} style={{ color: streak.win ? "var(--win)" : "var(--lose)", flexShrink: 0 }}>
                               {streak.win ? "W" : "L"}{streak.count}
                             </span>
                           )}
@@ -1107,10 +1219,13 @@ export default function Home() {
                         const fr = formRating[r.player_id] ?? elo[r.player_id] ?? 1000;
                         const base = elo[r.player_id] ?? 1000;
                         const delta = Math.round(fr - base);
-                        const col = delta > 5 ? "var(--win)" : delta < -5 ? "var(--lose)" : "var(--text-dim)";
+                        const hot = delta > 5, cold = delta < -5;
+                        const col = hot ? "var(--win)" : cold ? "var(--lose)" : "var(--text-dim)";
                         return (
-                          <div style={{ textAlign: "right" }} className="winrate">
-                            <span style={{ color: col, fontSize: "0.88rem" }}>{delta > 0 ? "+" : ""}{delta}</span>
+                          <div style={{ textAlign: "right" }} className="winrate" title={hot ? "Running hot — playing above their rating" : cold ? "Running cold — playing below their rating" : "Playing to their rating"}>
+                            <span style={{ color: col, fontSize: "0.88rem" }}>
+                              {hot ? "▲" : cold ? "▼" : ""}{delta > 0 ? "+" : ""}{delta}
+                            </span>
                           </div>
                         );
                       })()}
@@ -1212,30 +1327,29 @@ export default function Home() {
                             const eloRankIdx = [...sortedRanking].sort((a, b) => (elo[b.player_id] ?? 1000) - (elo[a.player_id] ?? 1000)).findIndex(x => x.player_id === r.player_id);
                             const btDiverges = btRank >= 0 && Math.abs(btRank - eloRankIdx) >= 2;
                             return (
-                              <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px solid var(--border)", display: "flex", gap: 24, flexWrap: "wrap" }}>
-                                <div>
-                                  <div className="section-label" style={{ marginBottom: 3 }}>PAGERANK AUTHORITY</div>
-                                  <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
-                                    <span className="font-mono" style={{ fontSize: "0.98rem", color: "var(--accent)" }}>{(prScore * 100).toFixed(2)}</span>
-                                    <span className="font-mono" style={{ fontSize: "0.82rem", color: "var(--text-dim)" }}>#{prRank + 1} authority</span>
-                                  </div>
-                                </div>
-                                <div>
-                                  <div className="section-label" style={{ marginBottom: 3 }}>DATA RELIABILITY</div>
-                                  <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
-                                    <span className="font-mono" style={{ fontSize: "0.98rem", color: relColor }}>{relLabel}</span>
-                                    <span className="font-mono" style={{ fontSize: "0.82rem", color: "var(--text-dim)" }}>{Math.round(rel * 100)}%</span>
-                                  </div>
-                                </div>
+                              <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid var(--border)", display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 8 }}>
+                                <MiniStat
+                                  label="QUALITY OF WINS"
+                                  value={`#${prRank + 1}`}
+                                  sub={prRank === 0 ? "beats the players who matter" : "ranked by who they beat"}
+                                  color="var(--accent)"
+                                  tip={`PageRank over the win graph (score ${(prScore * 100).toFixed(2)}). Beating strong, well-connected opponents counts for more than farming easy wins.`}
+                                />
+                                <MiniStat
+                                  label="RATING CONFIDENCE"
+                                  value={relLabel}
+                                  sub={rel < 0.3 ? "needs more games" : rel < 0.65 ? "decent sample" : "well established"}
+                                  color={relColor}
+                                  tip={`${Math.round(rel * 100)}% — based on games played, how recent they are, and opponent variety.`}
+                                />
                                 {bt !== undefined && btSe !== undefined && (
-                                  <div>
-                                    <div className="section-label" style={{ marginBottom: 3 }}>BRADLEY-TERRY</div>
-                                    <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
-                                      <span className="font-mono" style={{ fontSize: "0.98rem", color: "var(--accent)" }}>{bt}</span>
-                                      <span className="font-mono" style={{ fontSize: "0.82rem", color: "var(--text-dim)" }}>±{Math.round(btSe)}</span>
-                                      {btDiverges && <span className="font-mono" style={{ fontSize: "0.78rem", color: "var(--neutral)", border: "1px solid var(--neutral)", padding: "0 3px" }}>DIVERGENT</span>}
-                                    </div>
-                                  </div>
+                                  <MiniStat
+                                    label="SECOND OPINION"
+                                    value={<>{bt} <span style={{ color: "var(--text-dim)", fontSize: "0.8rem" }}>±{Math.round(btSe)}</span></>}
+                                    sub={btDiverges ? "disagrees with main rating" : "agrees with main rating"}
+                                    color={btDiverges ? "var(--neutral)" : "var(--accent)"}
+                                    tip="An independent statistical rating (Bradley-Terry) computed from the same games. When the two methods disagree, this player's true level is uncertain."
+                                  />
                                 )}
                               </div>
                             );
@@ -1250,12 +1364,14 @@ export default function Home() {
                             if (!est) return null;
                             return (
                               <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid var(--border)" }}>
-                                <div className="section-label" style={{ marginBottom: 4 }}>CEILING ESTIMATE</div>
+                                <Tip tip="Projected rating if the current trajectory holds, fitted from rating history." align="left">
+                                  <div className="section-label" style={{ marginBottom: 4 }}>PROJECTED PEAK <span className="info-dot">i</span></div>
+                                </Tip>
                                 <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
                                   <span className="font-mono" style={{ fontSize: "0.96rem", color: "var(--accent)" }}>{est.ceiling}</span>
                                   <span className="font-mono" style={{ fontSize: "0.82rem", color: "var(--text-dim)" }}>±{est.se}</span>
                                   <span className="font-mono" style={{ fontSize: "0.80rem", color: est.plateaued ? "var(--neutral)" : "var(--win)" }}>
-                                    {est.plateaued ? "PLATEAUED" : `+${est.gap_to_ceiling} gap`}
+                                    {est.plateaued ? "PLATEAUED — already there" : `still ${est.gap_to_ceiling} pts of headroom`}
                                   </span>
                                 </div>
                               </div>
@@ -1273,19 +1389,19 @@ export default function Home() {
                                     <span className="font-mono" style={{ fontSize: "0.92rem", color: "var(--lose)" }}>
                                       {state.players[profile.nemesis.opponent_id]?.display_name ?? profile.nemesis.opponent_id}
                                     </span>
-                                    <span className="font-mono" style={{ fontSize: "0.80rem", color: "var(--text-dim)", marginLeft: 6 }}>
-                                      {Math.round(profile.nemesis.actual_wr * 100)}% actual vs {Math.round(profile.nemesis.expected_wr * 100)}% expected
+                                    <span style={{ fontSize: "0.80rem", color: "var(--text-dim)", marginLeft: 6 }}>
+                                      wins only {Math.round(profile.nemesis.actual_wr * 100)}% vs them — rating says it should be {Math.round(profile.nemesis.expected_wr * 100)}%
                                     </span>
                                   </div>
                                 )}
                                 {profile.victim && (
                                   <div>
-                                    <div className="section-label" style={{ marginBottom: 3, color: "var(--win)" }}>VICTIM</div>
+                                    <div className="section-label" style={{ marginBottom: 3, color: "var(--win)" }}>FAVORITE TARGET</div>
                                     <span className="font-mono" style={{ fontSize: "0.92rem", color: "var(--win)" }}>
                                       {state.players[profile.victim.opponent_id]?.display_name ?? profile.victim.opponent_id}
                                     </span>
-                                    <span className="font-mono" style={{ fontSize: "0.80rem", color: "var(--text-dim)", marginLeft: 6 }}>
-                                      {Math.round(profile.victim.actual_wr * 100)}% actual vs {Math.round(profile.victim.expected_wr * 100)}% expected
+                                    <span style={{ fontSize: "0.80rem", color: "var(--text-dim)", marginLeft: 6 }}>
+                                      wins {Math.round(profile.victim.actual_wr * 100)}% vs them — well above the expected {Math.round(profile.victim.expected_wr * 100)}%
                                     </span>
                                   </div>
                                 )}
@@ -1299,72 +1415,72 @@ export default function Home() {
                             const dur: DominanceDuration | null = computeDominanceDuration(state, r.player_id);
                             return (
                               <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid var(--border)" }}>
-                                <div className="section-label" style={{ marginBottom: 6, color: "var(--accent)" }}>EXTENDED STATS</div>
-                                <div style={{ display: "flex", flexWrap: "wrap", gap: 18 }}>
-                                  <div>
-                                    <div className="section-label" style={{ marginBottom: 2 }}>PEAK ELO</div>
-                                    <span className="font-mono" style={{ fontSize: "0.9rem", color: "var(--accent)" }}>{ext.peak_elo}</span>
-                                  </div>
-                                  <div>
-                                    <div className="section-label" style={{ marginBottom: 2 }}>ELO VOLATILITY</div>
-                                    <span className="font-mono" style={{ fontSize: "0.9rem", color: "var(--text-bright)" }}>±{Math.round(ext.elo_volatility)}</span>
-                                  </div>
+                                <div className="section-label" style={{ marginBottom: 8, color: "var(--accent)" }}>DEEP STATS</div>
+                                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(125px, 1fr))", gap: 8 }}>
+                                  <MiniStat label="PEAK RATING" value={ext.peak_elo} color="var(--accent)" tip="Highest ELO this player has reached." />
+                                  <MiniStat
+                                    label="STABILITY"
+                                    value={`±${Math.round(ext.elo_volatility)}`}
+                                    sub={ext.elo_volatility > 20 ? "wild swings" : "steady mover"}
+                                    tip={`Typical rating swing per game. Small = consistent results, large = boom-or-bust.`}
+                                  />
                                   {ext.has_score_data && (
                                     <>
-                                      <div>
-                                        <div className="section-label" style={{ marginBottom: 2 }}>KILL RATE</div>
-                                        <span className="font-mono" style={{ fontSize: "0.9rem", color: "var(--text-bright)" }}>{ext.kill_rate.toFixed(2)}/rd</span>
-                                      </div>
-                                      <div>
-                                        <div className="section-label" style={{ marginBottom: 2 }}>RND WIN%</div>
-                                        <span className="font-mono" style={{ fontSize: "0.9rem", color: "var(--text-bright)" }}>{Math.round(ext.round_win_rate * 100)}%</span>
-                                      </div>
-                                      <div>
-                                        <div className="section-label" style={{ marginBottom: 2 }}>EFFICIENCY</div>
-                                        <span className="font-mono" style={{ fontSize: "0.9rem", color: ext.efficiency > 0 ? "var(--win)" : "var(--lose)" }}>
-                                          {ext.efficiency > 0 ? "+" : ""}{ext.efficiency.toFixed(2)}
-                                        </span>
-                                      </div>
-                                      <div>
-                                        <div className="section-label" style={{ marginBottom: 2 }}>AGGRESSION</div>
-                                        <span className="font-mono" style={{ fontSize: "0.9rem", color: "var(--text-bright)" }}>{ext.aggression.toFixed(2)}</span>
-                                      </div>
+                                      <MiniStat label="KILLS / ROUND" value={ext.kill_rate.toFixed(2)} tip="Average kills per round played." />
+                                      <MiniStat label="ROUND WIN%" value={`${Math.round(ext.round_win_rate * 100)}%`} tip="Share of individual rounds won, across all games." />
+                                      <MiniStat
+                                        label="CLUTCH FACTOR"
+                                        value={`${ext.efficiency > 0 ? "+" : ""}${ext.efficiency.toFixed(2)}`}
+                                        color={ext.efficiency > 0.02 ? "var(--win)" : ext.efficiency < -0.02 ? "var(--lose)" : "var(--text-dim)"}
+                                        sub={ext.efficiency > 0.02 ? "wins more than frags explain" : ext.efficiency < -0.02 ? "frags more than they win" : "wins exactly what they frag"}
+                                        tip="Round win rate minus kill rate. Positive = converts rounds without needing the kills (clutches, positioning). Negative = gets kills but loses rounds anyway."
+                                      />
+                                      <MiniStat
+                                        label="NET KILLS / RD"
+                                        value={`${ext.aggression > 0 ? "+" : ""}${ext.aggression.toFixed(2)}`}
+                                        color={ext.aggression > 0 ? "var(--win)" : ext.aggression < 0 ? "var(--lose)" : undefined}
+                                        tip="Kills minus deaths per round — the trade balance each round."
+                                      />
                                     </>
                                   )}
                                   {ext.upward_wr !== null && (
-                                    <div>
-                                      <div className="section-label" style={{ marginBottom: 2 }}>vs TOP</div>
-                                      <span className="font-mono" style={{ fontSize: "0.9rem", color: ext.upward_wr > 0.5 ? "var(--win)" : "var(--lose)" }}>
-                                        {Math.round(ext.upward_wr * 100)}%
-                                      </span>
-                                    </div>
+                                    <MiniStat
+                                      label="VS TOP HALF"
+                                      value={`${Math.round(ext.upward_wr * 100)}%`}
+                                      color={ext.upward_wr > 0.5 ? "var(--win)" : "var(--lose)"}
+                                      sub={ext.upward_wr > 0.5 ? "punches up" : "struggles up"}
+                                      tip="Win rate against players ranked above the median."
+                                    />
                                   )}
                                   {ext.downward_wr !== null && (
-                                    <div>
-                                      <div className="section-label" style={{ marginBottom: 2 }}>vs BOT</div>
-                                      <span className="font-mono" style={{ fontSize: "0.9rem", color: ext.downward_wr > 0.5 ? "var(--win)" : "var(--lose)" }}>
-                                        {Math.round(ext.downward_wr * 100)}%
-                                      </span>
-                                    </div>
+                                    <MiniStat
+                                      label="VS BOTTOM HALF"
+                                      value={`${Math.round(ext.downward_wr * 100)}%`}
+                                      color={ext.downward_wr > 0.5 ? "var(--win)" : "var(--lose)"}
+                                      sub={ext.downward_wr > 0.5 ? "takes care of business" : "drops winnable games"}
+                                      tip="Win rate against players ranked below the median."
+                                    />
                                   )}
-                                  <div>
-                                    <div className="section-label" style={{ marginBottom: 2 }}>SoS</div>
-                                    <span className="font-mono" style={{ fontSize: "0.9rem", color: "var(--text-bright)" }}>{Math.round(ext.strength_of_schedule)}</span>
-                                  </div>
-                                  <div>
-                                    <div className="section-label" style={{ marginBottom: 2 }}>ENTROPY</div>
-                                    <span className="font-mono" style={{ fontSize: "0.9rem", color: "var(--text-bright)" }}>{ext.predictability_entropy.toFixed(2)}</span>
-                                  </div>
+                                  <MiniStat
+                                    label="OPPONENT STRENGTH"
+                                    value={Math.round(ext.strength_of_schedule)}
+                                    sub={ext.strength_of_schedule > 1010 ? "tough schedule" : ext.strength_of_schedule < 990 ? "soft schedule" : "average schedule"}
+                                    tip="Average rating of opponents faced (1000 = pool average). High = their record came against strong players."
+                                  />
+                                  <MiniStat
+                                    label="CONSISTENCY"
+                                    value={`${Math.round((1 - ext.predictability_entropy) * 100)}%`}
+                                    sub={ext.predictability_entropy > 0.9 ? "total coin flip" : ext.predictability_entropy > 0.6 ? "hard to predict" : "predictable results"}
+                                    tip="How predictable their results are. 100% = outcomes nearly always go one way; 0% = pure 50/50 chaos."
+                                  />
                                   {dur && (
                                     <>
-                                      <div>
-                                        <div className="section-label" style={{ marginBottom: 2 }}>PEAK RANK</div>
-                                        <span className="font-mono" style={{ fontSize: "0.9rem", color: dur.peak_rank === 1 ? "var(--accent)" : "var(--text-bright)" }}>#{dur.peak_rank}</span>
-                                      </div>
-                                      <div>
-                                        <div className="section-label" style={{ marginBottom: 2 }}>AT #{dur.current_rank}</div>
-                                        <span className="font-mono" style={{ fontSize: "0.9rem", color: "var(--text-bright)" }}>{dur.games_at_rank}G</span>
-                                      </div>
+                                      <MiniStat label="BEST RANK" value={`#${dur.peak_rank}`} color={dur.peak_rank === 1 ? "var(--accent)" : undefined} tip="Highest leaderboard position ever held." />
+                                      <MiniStat
+                                        label={`HOLDING #${dur.current_rank}`}
+                                        value={`${dur.games_at_rank} games`}
+                                        tip={`How long they've sat at their current rank${dur.days_at_rank > 0 ? ` (~${dur.days_at_rank} days)` : ""}.`}
+                                      />
                                     </>
                                   )}
                                 </div>
@@ -1378,23 +1494,30 @@ export default function Home() {
                 );
               })}
 
-              {/* Path distribution */}
+              {/* Rating history */}
               {Object.keys(eloHistory).some(id => eloHistory[id].length > 0) && (
-                <div style={{ marginTop: 28, marginBottom: 28 }}>
-                  <EloChart history={eloHistory} players={state.players} />
+                <div style={{ marginBottom: 8 }}>
+                  <SectionHead title="RATING HISTORY" sub="every player's ELO over time" />
+                  <div className="panel panel-plain" style={{ padding: "14px 18px" }}>
+                    <EloChart history={eloHistory} players={state.players} />
+                  </div>
                 </div>
               )}
 
-              {players.length >= 2 && state.games.length > 0 && (
-                <div style={{ marginTop: 28, marginBottom: 28 }}>
-                  <GraphViz state={state} elo={elo} />
+              {/* Player scatter plot */}
+              {ranking.length >= 2 && (
+                <div style={{ marginBottom: 8 }}>
+                  <SectionHead title="PLAYER LANDSCAPE" sub="fragging power vs results — bubble size = games played" />
+                  <div className="panel panel-plain" style={{ padding: "14px 18px" }}>
+                    <PlayerScatterPlot ranking={sortedRanking} />
+                  </div>
                 </div>
               )}
 
               {/* Rivalry board */}
               {rivalries.length > 0 && (
-                <div style={{ marginTop: 28, marginBottom: 28 }}>
-                  <div className="section-label" style={{ marginBottom: 10 }}>TOP RIVALRIES</div>
+                <div style={{ marginBottom: 8 }}>
+                  <SectionHead title="TOP RIVALRIES" sub="most-played head-to-heads — click to expand the saga" />
                   <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                     {rivalries.map(rv => {
                       const key = `${rv.a}_${rv.b}`;
@@ -1430,98 +1553,6 @@ export default function Home() {
                 </div>
               )}
 
-              {/* Player scatter plot */}
-              {ranking.length >= 2 && (
-                <div style={{ marginTop: 28, marginBottom: 28 }}>
-                  <PlayerScatterPlot ranking={sortedRanking} />
-                </div>
-              )}
-
-              {/* Coverage map — matchup completion heatmap */}
-              {ranking.length >= 2 && (
-                <div style={{ marginTop: 28 }}>
-                  <div className="section-label" style={{ marginBottom: 10 }}>MATCHUP COVERAGE</div>
-                  <div style={{ overflowX: "auto" }}>
-                    <table style={{ borderCollapse: "collapse", fontSize: "0.82rem", fontFamily: "Share Tech Mono" }}>
-                      <thead>
-                        <tr>
-                          <td style={{ padding: "3px 8px", color: "var(--text-dim)" }}></td>
-                          {sortedRanking.map(r => (
-                            <td key={r.player_id} style={{ padding: "3px 6px", color: "var(--text-dim)", textAlign: "center", maxWidth: 54, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                              {r.display_name.slice(0, 5)}
-                            </td>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {sortedRanking.map(rowP => (
-                          <tr key={rowP.player_id}>
-                            <td style={{ padding: "3px 8px", color: "var(--text-dim)", whiteSpace: "nowrap" }}>{rowP.display_name.slice(0, 7)}</td>
-                            {sortedRanking.map(colP => {
-                              if (rowP.player_id === colP.player_id) {
-                                return <td key={colP.player_id} style={{ padding: "3px 6px", textAlign: "center", background: "var(--surface2)", color: "var(--text-dim)" }}>—</td>;
-                              }
-                              const g = state.games.filter(g =>
-                                (g.winner_id === rowP.player_id && g.loser_id === colP.player_id) ||
-                                (g.winner_id === colP.player_id && g.loser_id === rowP.player_id)
-                              ).length;
-                              const bg = g === 0 ? "rgba(255,255,255,0.02)" : g === 1 ? "rgba(0,118,181,0.20)" : "rgba(0,118,181,0.55)";
-                              return (
-                                <td key={colP.player_id} style={{ padding: "3px 6px", textAlign: "center", background: bg, color: g === 0 ? "var(--border)" : "var(--text-bright)" }}>
-                                  {g}
-                                </td>
-                              );
-                            })}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                  <div className="font-mono" style={{ fontSize: "0.76rem", color: "var(--text-dim)", marginTop: 6 }}>
-                    dark = 0 games · medium = 1 · bright = 2+
-                  </div>
-                </div>
-              )}
-
-              {/* Matchup matrix */}
-              {ranking.length >= 2 && (
-                <div style={{ marginTop: 28 }}>
-                  <div className="section-label" style={{ marginBottom: 10 }}>PAIRWISE WIN PROBABILITY MATRIX (row beats col)</div>
-                  <div style={{ overflowX: "auto" }}>
-                    <table style={{ borderCollapse: "collapse", fontSize: "0.90rem", fontFamily: "Share Tech Mono" }}>
-                      <thead>
-                        <tr>
-                          <td style={{ padding: "4px 10px", color: "var(--text-dim)" }}></td>
-                          {sortedRanking.map(r => (
-                            <td key={r.player_id} style={{ padding: "4px 8px", color: "var(--text-dim)", textAlign: "center", maxWidth: 70, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                              {r.display_name.slice(0, 6)}
-                            </td>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {sortedRanking.map(rowP => (
-                          <tr key={rowP.player_id}>
-                            <td style={{ padding: "4px 10px", color: "var(--text-dim)", whiteSpace: "nowrap" }}>{rowP.display_name.slice(0, 8)}</td>
-                            {sortedRanking.map(colP => {
-                              if (rowP.player_id === colP.player_id) {
-                                return <td key={colP.player_id} style={{ padding: "4px 8px", textAlign: "center", background: "var(--surface2)", color: "var(--text-dim)" }}>—</td>;
-                              }
-                              const p = rowP.matchup_table[colP.player_id] ?? 0.5;
-                              const color = p > 0.6 ? "var(--win)" : p < 0.4 ? "var(--lose)" : "var(--neutral)";
-                              return (
-                                <td key={colP.player_id} style={{ padding: "4px 8px", textAlign: "center", color }}>
-                                  {pct(p, 0)}
-                                </td>
-                              );
-                            })}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
             </>
           )}
         </div>
@@ -1530,7 +1561,10 @@ export default function Home() {
       {/* ── LOG ── */}
       {tab === "log" && (
         <div className="fade-in" style={{ maxWidth: 580 }}>
-          <div className="section-label" style={{ marginBottom: 14 }}>LOG 1v1 GAME</div>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 14 }}>
+            <span className="font-display" style={{ fontSize: "1.02rem", fontWeight: 700, letterSpacing: "0.14em", color: "var(--text-bright)" }}>LOG A GAME</span>
+            <span style={{ fontSize: "0.84rem", color: "var(--text-dim)" }}>every result reshapes the whole graph</span>
+          </div>
           {players.length < 2 && (
             <div style={{ color: "var(--neutral)", fontSize: "0.98rem", marginBottom: 14, fontFamily: "Share Tech Mono" }}>⚠ Add at least 2 players first</div>
           )}
@@ -1592,8 +1626,12 @@ export default function Home() {
 
       {/* ── MATCHUP ── */}
       {tab === "matchup" && (
-        <div className="fade-in" style={{ maxWidth: 520 }}>
-          <div className="section-label" style={{ marginBottom: 14 }}>PAIRWISE PREDICTION</div>
+        <div className="fade-in">
+        <div style={{ maxWidth: 560 }}>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 14 }}>
+            <span className="font-display" style={{ fontSize: "1.02rem", fontWeight: 700, letterSpacing: "0.14em", color: "var(--text-bright)" }}>PREDICT A MATCH</span>
+            <span style={{ fontSize: "0.84rem", color: "var(--text-dim)" }}>pick two players — the graph does the rest</span>
+          </div>
           <div className="panel" style={{ padding: 18, marginBottom: 14 }}>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 36px 1fr", gap: 12, alignItems: "end", marginBottom: 14 }}>
               <div>
@@ -1624,8 +1662,9 @@ export default function Home() {
                 <div style={{ marginLeft: "auto", display: "flex", gap: 4 }}>
                   {(["closest", "elovalue", "uncertain"] as const).map(s => (
                     <button key={s} className="btn" onClick={() => setSuggestSort(s)}
+                      title={s === "closest" ? "Most evenly matched first" : s === "elovalue" ? "Matchups where the graph model disagrees with plain ELO — biggest rating value at stake" : "Matchups the model knows least about"}
                       style={{ padding: "1px 7px", fontSize: "0.78rem", background: suggestSort === s ? "var(--accent)" : undefined, color: suggestSort === s ? "#000" : undefined }}>
-                      {s === "closest" ? "CLOSEST" : s === "elovalue" ? "ELO VALUE" : "UNCERTAIN"}
+                      {s === "closest" ? "CLOSEST" : s === "elovalue" ? "VALUE PICK" : "UNKNOWN"}
                     </button>
                   ))}
                 </div>
@@ -1705,9 +1744,11 @@ export default function Home() {
                         <div className="player-name">{aName}</div>
                         <div style={{ display: "flex", alignItems: "baseline", gap: 5 }}>
                           <span className="rating-value" style={{ fontSize: "1.6rem" }}>{pct(pA, 1)}</span>
-                          <span className="font-mono" style={{ fontSize: "0.87rem", color: "var(--text-dim)", letterSpacing: "0.02em" }}>
-                            ({Math.round(ciA[0] * 100)}–{Math.round(ciA[1] * 100)}%)
-                          </span>
+                          <Tip tip="Plausible range given how much evidence exists — wider means the model is less sure." align="left">
+                            <span className="font-mono" style={{ fontSize: "0.87rem", color: "var(--text-dim)", letterSpacing: "0.02em" }}>
+                              ({Math.round(ciA[0] * 100)}–{Math.round(ciA[1] * 100)}%)
+                            </span>
+                          </Tip>
                         </div>
                       </div>
                       {h2h.length > 0 && (
@@ -1754,27 +1795,42 @@ export default function Home() {
 
                   {/* Evidence breakdown */}
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, marginBottom: 14 }}>
-                    {[
-                      { label: "DIRECT GAMES", val: prediction.direct_games.toString() },
-                      { label: "KATZ MASS", val: fmt(prediction.evidence_mass, 3) },
-                      { label: "CONFIDENCE", val: confLabel(prediction.confidence), color: confColor(prediction.confidence) },
-                    ].map(({ label, val, color }) => (
-                      <div key={label} style={{ padding: "8px 10px", border: "1px solid var(--border)" }}>
-                        <div className="section-label" style={{ marginBottom: 4 }}>{label}</div>
-                        <div className="font-mono" style={{ fontSize: "0.95rem", color: color ?? "var(--text-bright)" }}>{val}</div>
-                      </div>
-                    ))}
+                    <MiniStat
+                      label="HEAD-TO-HEAD"
+                      value={prediction.direct_games === 0 ? "never met" : `${prediction.direct_games} game${prediction.direct_games === 1 ? "" : "s"}`}
+                      tip="Games these two have actually played against each other."
+                    />
+                    {(() => {
+                      const ev = evidenceLabel(prediction.evidence_mass, prediction.direct_games);
+                      return (
+                        <MiniStat
+                          label="EVIDENCE"
+                          value={ev.label}
+                          color={ev.color}
+                          sub={ev.gloss}
+                          tip={`Total weight of win-chains connecting these players through the game graph (Katz mass ${fmt(prediction.evidence_mass, 3)}). More and shorter chains = stronger evidence.`}
+                        />
+                      );
+                    })()}
+                    <MiniStat
+                      label="CONFIDENCE"
+                      value={confLabel(prediction.confidence)}
+                      color={confColor(prediction.confidence)}
+                      tip="How much the model trusts this number, given the quantity and quality of evidence."
+                    />
                   </div>
                   <div style={{ marginTop: 14 }}>
-                    <div className="section-label" style={{ marginBottom: 8 }}>INFERRED VIA</div>
+                    <Tip tip="Chains of wins connecting these players through common opponents. A heavier chain pulls the prediction harder." align="left">
+                      <div className="section-label" style={{ marginBottom: 8 }}>HOW THE MODEL KNOWS <span className="info-dot">i</span></div>
+                    </Tip>
                     {prediction.no_real_paths ? (
-                      <div style={{ padding: "8px 10px", border: "1px solid var(--border2)", color: "var(--text-dim)" }}>
+                      <div style={{ padding: "8px 10px", border: "1px solid var(--border2)", borderRadius: 5, color: "var(--text-dim)" }}>
                         <div className="font-mono" style={{ fontSize: "0.82rem", marginBottom: 4, color: "var(--neutral)" }}>
-                          NO OBSERVED GAME PATHS
+                          NO GAME EVIDENCE YET
                         </div>
-                        <div className="font-mono" style={{ fontSize: "0.78rem" }}>
-                          No transitive game evidence exists between these players.
-                          Prediction is based on stat prior only (KD, win rate).
+                        <div style={{ fontSize: "0.82rem" }}>
+                          These players aren&apos;t connected by any chain of results.
+                          This prediction comes from their stat profiles alone (K/D, win rate) — treat it as a rough guess.
                         </div>
                       </div>
                     ) : prediction.dominance_paths.length > 0 ? (
@@ -1801,7 +1857,7 @@ export default function Home() {
                       </div>
                     ) : (
                       <div className="font-mono" style={{ fontSize: "0.78rem", color: "var(--text-dim)" }}>
-                        Direct match only — no transitive paths.
+                        They&apos;ve played each other directly — no inference needed.
                       </div>
                     )}
                   </div>
@@ -1810,16 +1866,15 @@ export default function Home() {
                     const alert = computeUpsetAlert(predA, predB, pA, formRating);
                     if (!alert) return null;
                     const underdogName = state.players[alert.underdog]?.display_name ?? alert.underdog;
+                    const favName = alert.underdog === predA ? bName : aName;
                     return (
-                      <div style={{ marginTop: 12, padding: "8px 10px", border: "1px solid var(--neutral)", color: "var(--neutral)" }}>
-                        <div className="font-mono" style={{ fontSize: "0.82rem", marginBottom: 2 }}>
-                          ⚡ UPSET ALERT ({alert.alert_level})
+                      <div style={{ marginTop: 12, padding: "9px 12px", border: "1px solid var(--neutral)", borderRadius: 5, background: "color-mix(in srgb, var(--neutral) 5%, transparent)" }}>
+                        <div className="font-mono" style={{ fontSize: "0.82rem", marginBottom: 3, color: "var(--neutral)" }}>
+                          ⚡ UPSET WATCH ({alert.alert_level})
                         </div>
-                        <div className="font-mono" style={{ fontSize: "0.78rem", color: "var(--text-dim)" }}>
-                          Katz: {pct(alert.elo_win_prob, 1)} · Form: {pct(alert.form_win_prob, 1)} · Δ{Math.round(alert.divergence * 100)}%
-                        </div>
-                        <div className="font-mono" style={{ fontSize: "0.78rem", color: "var(--text-dim)" }}>
-                          {underdogName}&apos;s form rating diverges from model prediction
+                        <div style={{ fontSize: "0.84rem", color: "var(--text)" }}>
+                          The season-long model gives {favName} {pct(alert.elo_win_prob, 1)}, but current form puts it closer to {pct(alert.form_win_prob, 1)} —
+                          {" "}{underdogName} is playing well above their rating right now.
                         </div>
                       </div>
                     );
@@ -1830,37 +1885,126 @@ export default function Home() {
                     const urg = computeRematchUrgency(state, predA, predB);
                     if (!urg || urg.prediction_shift < 0.1) return null;
                     return (
-                      <div style={{ marginTop: 8, padding: "6px 10px", border: "1px solid var(--border)" }}>
-                        <div className="font-mono" style={{ fontSize: "0.78rem", color: "var(--text-dim)" }}>
-                          REMATCH CONTEXT · {urg.days_since}d ago · prediction shift +{Math.round(urg.prediction_shift * 100)}% · {urg.direction}
+                      <div style={{ marginTop: 8, padding: "8px 12px", border: "1px solid var(--border)", borderRadius: 5 }}>
+                        <div style={{ fontSize: "0.84rem", color: "var(--text-dim)" }}>
+                          <span className="font-mono" style={{ color: "var(--accent)", fontSize: "0.78rem" }}>REMATCH ANGLE</span>
+                          {" "}— last met {urg.days_since}d ago, and the prediction has since moved {Math.round(urg.prediction_shift * 100)} points: {urg.direction}.
                         </div>
                       </div>
                     );
                   })()}
                   {/* Compact sim metadata — model prior shown as diagnostic input, not headline */}
                   <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px solid var(--border)" }}>
-                    <div className="font-mono" style={{ fontSize: "0.80rem", color: "var(--text-dim)", display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
-                      <span>{simWins !== undefined ? `${simWins}/1000 runs` : "no sim data"}</span>
+                    <div className="font-mono" style={{ fontSize: "0.78rem", color: "var(--text-dim)", display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+                      <Tip tip={`The headline number is a frequency: ${aName} won ${simWins ?? "?"} of 1000 full simulated tournaments against this field.`} align="left">
+                        <span>{simWins !== undefined ? `${simWins}/1000 sims` : "no sim data"} <span className="info-dot">i</span></span>
+                      </Tip>
                       <span style={{ color: "var(--border2)" }}>·</span>
                       {h2h.length > 0
-                        ? <span>direct {aWins}W–{bWins}L</span>
+                        ? <span>head-to-head {aWins}W–{bWins}L</span>
                         : prediction.evidence_mass > 0
-                          ? <span>katz ↑{fmt(prediction.katz_ab, 3)} ↓{fmt(prediction.katz_ba, 3)}</span>
+                          ? <Tip tip={`Raw graph-path weights: ${fmt(prediction.katz_ab, 3)} favoring ${aName}, ${fmt(prediction.katz_ba, 3)} favoring ${bName}.`} align="left"><span>indirect evidence only <span className="info-dot">i</span></span></Tip>
                           : <span>no graph evidence</span>}
                       <span style={{ color: "var(--border2)" }}>·</span>
-                      <span>model prior: {pct(prior, 1)}</span>
-                      {priorDelta > 0.005 && (
-                        <>
-                          <span style={{ color: "var(--border2)" }}>·</span>
-                          <span style={{ color: priorDelta > 0.05 ? "var(--neutral)" : undefined }}>Δ {pct(priorDelta, 1)}</span>
-                        </>
-                      )}
+                      <Tip tip="What the graph model alone (before tournament simulation) expects. A large gap between this and the headline means the field context matters." align="right">
+                        <span>graph model: {pct(prior, 1)}{priorDelta > 0.005 ? ` (Δ ${pct(priorDelta, 1)})` : ""} <span className="info-dot">i</span></span>
+                      </Tip>
                     </div>
                   </div>
                 </div>
               </div>
             );
           })()}
+        </div>
+
+        {/* Pairwise probability matrix */}
+        {ranking.length >= 2 && (
+          <div>
+            <SectionHead title="WIN PROBABILITY MATRIX" sub="chance the row player beats the column player" />
+            <div style={{ overflowX: "auto" }}>
+              <table className="matrix-table" style={{ fontSize: "0.90rem" }}>
+                <thead>
+                  <tr>
+                    <td style={{ padding: "4px 10px", color: "var(--text-dim)" }}></td>
+                    {sortedRanking.map(r => (
+                      <td key={r.player_id} style={{ padding: "4px 8px", color: "var(--text-dim)", textAlign: "center", maxWidth: 70, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {r.display_name.slice(0, 6)}
+                      </td>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {sortedRanking.map(rowP => (
+                    <tr key={rowP.player_id}>
+                      <td style={{ padding: "4px 10px", color: "var(--text-dim)", whiteSpace: "nowrap" }}>{rowP.display_name.slice(0, 8)}</td>
+                      {sortedRanking.map(colP => {
+                        if (rowP.player_id === colP.player_id) {
+                          return <td key={colP.player_id} style={{ padding: "4px 8px", textAlign: "center", background: "var(--surface2)", color: "var(--text-dim)" }}>—</td>;
+                        }
+                        const p = rowP.matchup_table[colP.player_id] ?? 0.5;
+                        const color = p > 0.6 ? "var(--win)" : p < 0.4 ? "var(--lose)" : "var(--neutral)";
+                        const bg = p > 0.5
+                          ? `color-mix(in srgb, var(--win) ${Math.round((p - 0.5) * 26)}%, transparent)`
+                          : `color-mix(in srgb, var(--lose) ${Math.round((0.5 - p) * 26)}%, transparent)`;
+                        return (
+                          <td key={colP.player_id} style={{ padding: "4px 8px", textAlign: "center", color, background: bg }}>
+                            {pct(p, 0)}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* Coverage map — matchup completion heatmap */}
+        {ranking.length >= 2 && (
+          <div>
+            <SectionHead title="UNEXPLORED MATCHUPS" sub="games played per pair — dark cells have never been played" />
+            <div style={{ overflowX: "auto" }}>
+              <table className="matrix-table" style={{ fontSize: "0.82rem" }}>
+                <thead>
+                  <tr>
+                    <td style={{ padding: "3px 8px", color: "var(--text-dim)" }}></td>
+                    {sortedRanking.map(r => (
+                      <td key={r.player_id} style={{ padding: "3px 6px", color: "var(--text-dim)", textAlign: "center", maxWidth: 54, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {r.display_name.slice(0, 5)}
+                      </td>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {sortedRanking.map(rowP => (
+                    <tr key={rowP.player_id}>
+                      <td style={{ padding: "3px 8px", color: "var(--text-dim)", whiteSpace: "nowrap" }}>{rowP.display_name.slice(0, 7)}</td>
+                      {sortedRanking.map(colP => {
+                        if (rowP.player_id === colP.player_id) {
+                          return <td key={colP.player_id} style={{ padding: "3px 6px", textAlign: "center", background: "var(--surface2)", color: "var(--text-dim)" }}>—</td>;
+                        }
+                        const g = state.games.filter(g =>
+                          (g.winner_id === rowP.player_id && g.loser_id === colP.player_id) ||
+                          (g.winner_id === colP.player_id && g.loser_id === rowP.player_id)
+                        ).length;
+                        const bg = g === 0 ? "rgba(255,255,255,0.02)" : g === 1 ? "color-mix(in srgb, var(--accent) 16%, transparent)" : "color-mix(in srgb, var(--accent) 42%, transparent)";
+                        return (
+                          <td key={colP.player_id} style={{ padding: "3px 6px", textAlign: "center", background: bg, color: g === 0 ? "var(--border2)" : "var(--text-bright)" }}>
+                            {g}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="font-mono" style={{ fontSize: "0.76rem", color: "var(--text-dim)", marginTop: 6 }}>
+              never played · played once · well explored — dark pairs are where the model is guessing
+            </div>
+          </div>
+        )}
         </div>
       )}
 
@@ -1902,17 +2046,18 @@ export default function Home() {
                     <div style={{ padding: "0 14px", textAlign: "center" }}>
                       <div className="font-mono" style={{ fontSize: "0.80rem", color: "var(--accent)" }}>DEF</div>
                       {upsetMap[g.id] && (
-                        <div className="font-mono" style={{ fontSize: "0.74rem", color: "var(--neutral)", border: "1px solid var(--neutral)", padding: "0 3px", marginTop: 2, lineHeight: 1.5 }}>UPSET</div>
+                        <div style={{ marginTop: 2 }}><span className="chip" style={{ color: "var(--neutral)" }} title="The model had the loser as the favorite going in">UPSET</span></div>
                       )}
                       {revengeMap[g.id] && (
-                        <div className="font-mono" style={{ fontSize: "0.74rem", color: "var(--accent2)", border: "1px solid var(--accent2)", padding: "0 3px", marginTop: 2, lineHeight: 1.5 }}>REVENGE</div>
+                        <div style={{ marginTop: 2 }}><span className="chip" style={{ color: "var(--accent2)" }} title="Avenged a previous loss to this opponent">REVENGE</span></div>
                       )}
                       {(() => {
                         const imp = retroImpact[g.id] ?? 0;
                         if (imp < 0.15) return null;
                         const stars = imp > 0.8 ? 5 : imp > 0.6 ? 4 : imp > 0.4 ? 3 : imp > 0.2 ? 2 : 1;
                         return (
-                          <div className="font-mono" style={{ fontSize: "0.74rem", color: "var(--accent)", marginTop: 2, lineHeight: 1.5 }}>
+                          <div className="font-mono" style={{ fontSize: "0.74rem", color: "var(--accent)", marginTop: 2, lineHeight: 1.5 }}
+                            title={`Pivotal game — still shapes ${stars >= 4 ? "a huge chunk" : stars >= 2 ? "a meaningful part" : "a piece"} of today's standings. Removing it would visibly reorder the table.`}>
                             {"★".repeat(stars)}
                           </div>
                         );
@@ -2063,7 +2208,10 @@ export default function Home() {
       {/* ── PLAYERS ── */}
       {tab === "players" && (
         <div className="fade-in" style={{ maxWidth: 440 }}>
-          <div className="section-label" style={{ marginBottom: 12 }}>ADD PLAYER</div>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 12 }}>
+            <span className="font-display" style={{ fontSize: "1.02rem", fontWeight: 700, letterSpacing: "0.14em", color: "var(--text-bright)" }}>ROSTER</span>
+            <span style={{ fontSize: "0.84rem", color: "var(--text-dim)" }}>add or manage players</span>
+          </div>
           <form onSubmit={addPlayer} className="panel" style={{ padding: 18, marginBottom: 20, display: "flex", gap: 10 }}>
             <input className="input" value={newName} onChange={e => setNewName(e.target.value)} placeholder="Display name (e.g. grug)" style={{ flex: 1 }} />
             <button type="submit" className="btn btn-primary" disabled={addingPlayer || !newName.trim()}>
@@ -2119,38 +2267,60 @@ export default function Home() {
       {/* ── SYSTEM ── */}
       {tab === "system" && (
         <div className="fade-in">
-          <div className="section-label" style={{ marginBottom: 16 }}>SYSTEM ANALYTICS</div>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 16 }}>
+            <span className="font-display" style={{ fontSize: "1.02rem", fontWeight: 700, letterSpacing: "0.14em", color: "var(--text-bright)" }}>ENGINE ROOM</span>
+            <span style={{ fontSize: "0.84rem", color: "var(--text-dim)" }}>how the rating engine sees the pool — and whether to trust it</span>
+          </div>
+
+          {/* Win graph */}
+          {players.length >= 2 && state.games.length > 0 && (
+            <div className="panel" style={{ padding: "16px 18px", marginBottom: 14 }}>
+              <div className="section-label" style={{ marginBottom: 4, color: "var(--accent)" }}>THE WIN GRAPH</div>
+              <div style={{ fontSize: "0.82rem", color: "var(--text-dim)", marginBottom: 10 }}>
+                Every rating flows from this map. Arrows point from winner to loser — bright arrows are lopsided records, thick arrows are well-played pairs.
+              </div>
+              <GraphViz state={state} elo={elo} />
+            </div>
+          )}
 
           {/* Model Validation */}
           <div className="panel" style={{ padding: "14px 18px", marginBottom: 14 }}>
-            <div className="section-label" style={{ marginBottom: 10, color: "var(--accent)" }}>MODEL VALIDATION</div>
+            <div className="section-label" style={{ marginBottom: 4, color: "var(--accent)" }}>MODEL REPORT CARD</div>
+            <div style={{ fontSize: "0.82rem", color: "var(--text-dim)", marginBottom: 10 }}>
+              Each game was hidden from the model, predicted cold, then checked against what actually happened.
+            </div>
             {looCv ? (
-              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                <div style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
-                  <div>
-                    <div className="section-label" style={{ marginBottom: 2 }}>LOO ACCURACY</div>
-                    <span className="font-mono" style={{ fontSize: "0.9rem", color: looCv.accuracy > 0.6 ? "var(--win)" : "var(--text-bright)" }}>{Math.round(looCv.accuracy * 100)}%</span>
-                    <span className="font-mono" style={{ fontSize: "0.80rem", color: "var(--text-dim)", marginLeft: 6 }}>({looCv.n} predictions)</span>
-                  </div>
-                  <div>
-                    <div className="section-label" style={{ marginBottom: 2 }}>LOO BRIER</div>
-                    <span className="font-mono" style={{ fontSize: "0.9rem", color: "var(--text-bright)" }}>{looCv.brier_score.toFixed(3)}</span>
-                    <span className="font-mono" style={{ fontSize: "0.80rem", color: "var(--text-dim)", marginLeft: 6 }}>random=0.250</span>
-                  </div>
-                  <div>
-                    <div className="section-label" style={{ marginBottom: 2 }}>BRIER SKILL</div>
-                    <span className="font-mono" style={{ fontSize: "0.9rem", color: looCv.brier_skill > 0.05 ? "var(--win)" : "var(--lose)" }}>+{Math.round(looCv.brier_skill * 100)}%</span>
-                    <span className="font-mono" style={{ fontSize: "0.80rem", color: "var(--text-dim)", marginLeft: 6 }}>vs random</span>
-                  </div>
-                  <div>
-                    <div className="section-label" style={{ marginBottom: 2 }}>IN-SAMPLE</div>
-                    <span className="font-mono" style={{ fontSize: "0.9rem", color: "var(--text-dim)" }}>{Math.round(looCv.in_sample_accuracy * 100)}%</span>
-                    <span className="font-mono" style={{ fontSize: "0.78rem", color: "var(--text-dim)", marginLeft: 6 }}>← optimistic</span>
-                  </div>
-                </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(170px, 1fr))", gap: 8 }}>
+                <MiniStat
+                  label="CALLS RIGHT"
+                  value={`${Math.round(looCv.accuracy * 100)}%`}
+                  color={looCv.accuracy > 0.6 ? "var(--win)" : "var(--text-bright)"}
+                  sub={`across ${looCv.n} held-out games`}
+                  tip="Share of held-out games where the model picked the actual winner. 50% = coin flip."
+                />
+                <MiniStat
+                  label="ERROR SCORE"
+                  value={looCv.brier_score.toFixed(3)}
+                  sub="lower is better · 0.250 = guessing"
+                  tip="Brier score: average squared gap between predicted probability and what happened. 0 = perfect foresight, 0.25 = pure guessing."
+                />
+                <MiniStat
+                  label="EDGE OVER CHANCE"
+                  value={`+${Math.round(looCv.brier_skill * 100)}%`}
+                  color={looCv.brier_skill > 0.05 ? "var(--win)" : "var(--lose)"}
+                  sub={looCv.brier_skill > 0.05 ? "real predictive signal" : "barely beats coin flips"}
+                  tip="How much better the model's probabilities are than always saying 50/50."
+                />
+                <MiniStat
+                  label="OPEN-BOOK SCORE"
+                  value={`${Math.round(looCv.in_sample_accuracy * 100)}%`}
+                  color="var(--text-dim)"
+                  sub="on games it already saw — flattering"
+                  tip="Accuracy on the same games the model trained on. Always optimistic — the held-out number is the honest one."
+                />
               </div>
             ) : (
-              <div className="font-mono" style={{ fontSize: "0.90rem", color: "var(--text-dim)" }}>Need ≥4 games for LOO validation.</div>
+              <div className="font-mono" style={{ fontSize: "0.90rem", color: "var(--text-dim)" }}>Need ≥4 games for an honest accuracy test.</div>
             )}
           </div>
 
@@ -2164,20 +2334,28 @@ export default function Home() {
             const eloVsBt    = kendallTauAgreement(eloOrder, btOrder);
             return (
               <div className="panel" style={{ padding: "14px 18px", marginBottom: 14 }}>
-                <div className="section-label" style={{ marginBottom: 10, color: "var(--accent)" }}>RANKING AGREEMENT (KENDALL τ)</div>
-                <div style={{ display: "flex", gap: 24, flexWrap: "wrap", marginBottom: 10 }}>
+                <div className="section-label" style={{ marginBottom: 4, color: "var(--accent)" }}>DO THE THREE RATING METHODS AGREE?</div>
+                <div style={{ fontSize: "0.82rem", color: "var(--text-dim)", marginBottom: 10 }}>
+                  The same games, ranked three ways: the graph model (Katz), classic ELO, and a pure statistical fit (Bradley-Terry).
+                  Numbers show how many player-pairs each pair of methods puts in the same order.
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 8, marginBottom: 14 }}>
                   {[
-                    { label: "KATZ vs ELO",  tau: katzVsElo },
-                    { label: "KATZ vs BT",   tau: katzVsBt },
-                    { label: "ELO vs BT",    tau: eloVsBt },
+                    { label: "GRAPH vs ELO",  tau: katzVsElo },
+                    { label: "GRAPH vs STATS", tau: katzVsBt },
+                    { label: "ELO vs STATS",   tau: eloVsBt },
                   ].map(({ label, tau }) => (
-                    <div key={label}>
-                      <div className="section-label" style={{ marginBottom: 2 }}>{label}</div>
-                      <span className="font-mono" style={{ fontSize: "0.9rem", color: tau > 0.8 ? "var(--win)" : tau > 0.5 ? "var(--neutral)" : "var(--lose)" }}>{tau.toFixed(2)}</span>
-                    </div>
+                    <MiniStat
+                      key={label}
+                      label={label}
+                      value={`${tauAgreement(tau)}%`}
+                      color={tau > 0.8 ? "var(--win)" : tau > 0.5 ? "var(--neutral)" : "var(--lose)"}
+                      sub={tau > 0.8 ? "same story" : tau > 0.5 ? "mostly aligned" : "telling different stories"}
+                      tip={`${tauAgreement(tau)}% of player-pairs ordered identically (Kendall τ = ${tau.toFixed(2)}). Disagreement usually means upsets or thin data.`}
+                    />
                   ))}
                 </div>
-                <div className="section-label" style={{ marginBottom: 6 }}>BT RATINGS</div>
+                <div className="section-label" style={{ marginBottom: 6 }}>SECOND-OPINION RANKING (BRADLEY-TERRY)</div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
                   {btOrder.map((id, i) => {
                     const btRating = btResult.ratings[id] ?? 1000;
@@ -2189,10 +2367,12 @@ export default function Home() {
                         <span className="font-mono" style={{ fontSize: "0.82rem", color: "var(--text-dim)", minWidth: 18 }}>#{i + 1}</span>
                         <span className="player-name" style={{ minWidth: 100 }}>{state.players[id]?.display_name ?? id}</span>
                         <span className="font-mono" style={{ fontSize: "0.98rem", color: "var(--accent)" }}>{btRating}</span>
-                        <span className="font-mono" style={{ fontSize: "0.80rem", color: "var(--text-dim)" }}>±{Math.round(se)}</span>
+                        <Tip tip="Statistical margin of error — the true rating is most likely within this band.">
+                          <span className="font-mono" style={{ fontSize: "0.80rem", color: "var(--text-dim)" }}>±{Math.round(se)}</span>
+                        </Tip>
                         {diff >= 2 && (
-                          <span className="font-mono" style={{ fontSize: "0.76rem", color: "var(--neutral)", border: "1px solid var(--neutral)", padding: "0 3px" }}>
-                            ELO #{eloRankIdx + 1}
+                          <span className="chip" style={{ color: "var(--neutral)" }} title={`ELO has this player ${diff} spots away, at #${eloRankIdx + 1}`}>
+                            ELO SAYS #{eloRankIdx + 1}
                           </span>
                         )}
                       </div>
@@ -2208,34 +2388,35 @@ export default function Home() {
             const parity = computeParityIndex(state, champCounts, 1000);
             return (
               <div className="panel" style={{ padding: "14px 18px", marginBottom: 14 }}>
-                <div className="section-label" style={{ marginBottom: 10, color: "var(--accent)" }}>POOL PARITY</div>
-                <div style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
-                  <div>
-                    <div className="section-label" style={{ marginBottom: 2 }}>PARITY INDEX</div>
-                    <span className="font-mono" style={{ fontSize: "0.9rem", color: parity.normalized_parity > 0.7 ? "var(--win)" : parity.normalized_parity > 0.4 ? "var(--neutral)" : "var(--lose)" }}>
-                      {Math.round(parity.normalized_parity * 100)}%
-                    </span>
-                  </div>
-                  <div>
-                    <div className="section-label" style={{ marginBottom: 2 }}>ELO SPREAD</div>
-                    <span className="font-mono" style={{ fontSize: "0.9rem", color: "var(--text-bright)" }}>±{Math.round(parity.elo_spread)}</span>
-                    <span className="font-mono" style={{ fontSize: "0.80rem", color: "var(--text-dim)", marginLeft: 6 }}>pts std dev</span>
-                  </div>
-                  <div>
-                    <div className="section-label" style={{ marginBottom: 2 }}>COMPETITIVE ENTROPY</div>
-                    <span className="font-mono" style={{ fontSize: "0.9rem", color: "var(--text-bright)" }}>{parity.entropy.toFixed(2)}</span>
-                    <span className="font-mono" style={{ fontSize: "0.80rem", color: "var(--text-dim)", marginLeft: 6 }}>/ {parity.max_entropy.toFixed(2)} max</span>
-                  </div>
+                <div className="section-label" style={{ marginBottom: 10, color: "var(--accent)" }}>HOW COMPETITIVE IS THE POOL?</div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(170px, 1fr))", gap: 8 }}>
+                  <MiniStat
+                    label="PARITY"
+                    value={`${Math.round(parity.normalized_parity * 100)}%`}
+                    color={parity.normalized_parity > 0.7 ? "var(--win)" : parity.normalized_parity > 0.4 ? "var(--neutral)" : "var(--lose)"}
+                    sub={parity.normalized_parity > 0.7 ? "very even pool" : parity.normalized_parity > 0.4 ? "clear tiers forming" : "one-sided pool"}
+                    tip="How evenly title chances are spread. 100% = every player equally likely to win a tournament."
+                  />
+                  <MiniStat
+                    label="RATING SPREAD"
+                    value={`±${Math.round(parity.elo_spread)} pts`}
+                    sub="distance between players"
+                    tip="Standard deviation of ratings. Bigger spread = bigger skill gaps between players."
+                  />
+                  <MiniStat
+                    label="TITLE RACE OPENNESS"
+                    value={`${Math.round((parity.entropy / Math.max(parity.max_entropy, 0.001)) * 100)}%`}
+                    sub={parity.entropy / Math.max(parity.max_entropy, 0.001) > 0.8 ? "anyone could take it" : parity.entropy / Math.max(parity.max_entropy, 0.001) > 0.5 ? "a few real contenders" : "all but decided"}
+                    tip={`How unpredictable the tournament winner is (entropy ${parity.entropy.toFixed(2)} of ${parity.max_entropy.toFixed(2)} max). 100% = a complete toss-up between everyone.`}
+                  />
                   {skillGap && (
-                    <div>
-                      <div className="section-label" style={{ marginBottom: 2 }}>SKILL GAP TREND</div>
-                      <span className="font-mono" style={{ fontSize: "0.9rem", color: skillGap.trend === "CONVERGING" ? "var(--win)" : skillGap.trend === "DIVERGING" ? "var(--lose)" : "var(--text-dim)" }}>
-                        {skillGap.trend}
-                      </span>
-                      <span className="font-mono" style={{ fontSize: "0.80rem", color: "var(--text-dim)", marginLeft: 6 }}>
-                        {skillGap.slope > 0 ? "+" : ""}{skillGap.slope} pts/game
-                      </span>
-                    </div>
+                    <MiniStat
+                      label="SKILL GAP TREND"
+                      value={skillGap.trend === "CONVERGING" ? "NARROWING" : skillGap.trend === "DIVERGING" ? "WIDENING" : "HOLDING"}
+                      color={skillGap.trend === "CONVERGING" ? "var(--win)" : skillGap.trend === "DIVERGING" ? "var(--lose)" : "var(--text-dim)"}
+                      sub={`${skillGap.slope > 0 ? "+" : ""}${skillGap.slope} pts per game`}
+                      tip="Whether the gap between the strongest and weakest players is growing or shrinking over time."
+                    />
                   )}
                 </div>
               </div>
@@ -2246,25 +2427,29 @@ export default function Home() {
           {cycleAnalysis && (() => {
             return (
               <div className="panel" style={{ padding: "14px 18px", marginBottom: 14 }}>
-                <div className="section-label" style={{ marginBottom: 10, color: "var(--accent)" }}>CYCLE ANALYSIS</div>
-                <div style={{ display: "flex", gap: 24, marginBottom: 10, flexWrap: "wrap" }}>
-                  <div>
-                    <div className="section-label" style={{ marginBottom: 2 }}>TRANSITIVITY RATE</div>
-                    <span className="font-mono" style={{ fontSize: "0.9rem", color: cycleAnalysis.transitivity_rate > 0.7 ? "var(--win)" : "var(--neutral)" }}>
-                      {Math.round(cycleAnalysis.transitivity_rate * 100)}%
-                    </span>
-                    <span className="font-mono" style={{ fontSize: "0.80rem", color: "var(--text-dim)", marginLeft: 6 }}>of matchups follow A beats B beats C → A beats C</span>
-                  </div>
-                  <div>
-                    <div className="section-label" style={{ marginBottom: 2 }}>3-CYCLES FOUND</div>
-                    <span className="font-mono" style={{ fontSize: "0.9rem", color: cycleAnalysis.cycles.length > 0 ? "var(--neutral)" : "var(--win)" }}>
-                      {cycleAnalysis.cycles.length}
-                    </span>
-                  </div>
+                <div className="section-label" style={{ marginBottom: 4, color: "var(--accent)" }}>ROCK-PAPER-SCISSORS CHECK</div>
+                <div style={{ fontSize: "0.82rem", color: "var(--text-dim)", marginBottom: 10 }}>
+                  If A beats B and B beats C, A &quot;should&quot; beat C. Triangles that break this rule are real stylistic counters — no single ranking can capture them.
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(170px, 1fr))", gap: 8, marginBottom: 10 }}>
+                  <MiniStat
+                    label="RESULTS BEHAVING"
+                    value={`${Math.round(cycleAnalysis.transitivity_rate * 100)}%`}
+                    color={cycleAnalysis.transitivity_rate > 0.7 ? "var(--win)" : "var(--neutral)"}
+                    sub="of triples follow the expected order"
+                    tip="Share of player triples where results line up transitively (A beats B beats C, and A beats C)."
+                  />
+                  <MiniStat
+                    label="COUNTER TRIANGLES"
+                    value={cycleAnalysis.cycles.length}
+                    color={cycleAnalysis.cycles.length > 0 ? "var(--neutral)" : "var(--win)"}
+                    sub={cycleAnalysis.cycles.length > 0 ? "rock-paper-scissors detected" : "none — clean hierarchy"}
+                    tip="Triples where each player beats the next around a circle. These matchups defy the ranking."
+                  />
                 </div>
                 {cycleAnalysis.cycles.length > 0 && (
                   <>
-                    <div className="section-label" style={{ marginBottom: 6 }}>RIVALRY TRIANGLES</div>
+                    <div className="section-label" style={{ marginBottom: 6 }}>THE TRIANGLES</div>
                     <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                       {cycleAnalysis.cycles.slice(0, 5).map((cy, idx) => (
                         <div key={idx} className="panel" style={{ padding: "6px 10px" }}>
@@ -2295,11 +2480,11 @@ export default function Home() {
           {/* Kingmaker panel */}
           {kingmaker.length > 0 && (
             <div className="panel" style={{ padding: "14px 18px", marginBottom: 14 }}>
-              <div className="section-label" style={{ marginBottom: 10, color: "var(--accent)" }}>STRUCTURAL INFLUENCE (KINGMAKER)</div>
-              <div className="font-mono" style={{ fontSize: "0.78rem", color: "var(--text-dim)", marginBottom: 8 }}>
-                How much rankings shift when each player is excluded — higher = more structurally important
+              <div className="section-label" style={{ marginBottom: 4, color: "var(--accent)" }}>KINGMAKERS</div>
+              <div style={{ fontSize: "0.82rem", color: "var(--text-dim)", marginBottom: 10 }}>
+                Delete a player and their games, and watch the standings move. The bigger the shake-up, the more the whole ranking depends on that player&apos;s results.
               </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
                 {[...kingmaker].sort((a, b) => b.kendall_tau_shift - a.kendall_tau_shift).map((km, i) => {
                   const bar = Math.round(km.kendall_tau_shift * 100);
                   const col = km.kendall_tau_shift > 0.3 ? "var(--accent)" : km.kendall_tau_shift > 0.1 ? "var(--neutral)" : "var(--text-dim)";
@@ -2307,13 +2492,14 @@ export default function Home() {
                     <div key={km.player_id} style={{ display: "flex", alignItems: "center", gap: 10 }}>
                       <span className="font-mono" style={{ fontSize: "0.80rem", color: "var(--text-dim)", minWidth: 18 }}>#{i + 1}</span>
                       <span className="player-name" style={{ minWidth: 100 }}>{km.display_name}</span>
-                      <div style={{ flex: 1, height: 4, background: "var(--surface2)", borderRadius: 2, overflow: "hidden" }}>
-                        <div style={{ height: "100%", width: `${bar}%`, background: col, borderRadius: 2 }} />
+                      <div className="bar-track">
+                        <div className="bar-fill" style={{ width: `${bar}%`, background: col }} />
                       </div>
-                      <span className="font-mono" style={{ fontSize: "0.82rem", color: col, minWidth: 40, textAlign: "right" }}>{bar}%</span>
-                      <span className="font-mono" style={{ fontSize: "0.78rem", color: "var(--text-dim)", minWidth: 60, textAlign: "right" }}>
-                        ±{km.max_position_shift} pos
-                      </span>
+                      <Tip tip={`Without ${km.display_name}'s games, ${bar}% of player-pairs would swap order, and someone would move up to ${km.max_position_shift} spot${km.max_position_shift === 1 ? "" : "s"}.`} align="right">
+                        <span className="font-mono" style={{ fontSize: "0.82rem", color: col, minWidth: 110, textAlign: "right", display: "inline-block" }}>
+                          {bar}% shake-up · ±{km.max_position_shift}
+                        </span>
+                      </Tip>
                     </div>
                   );
                 })}
@@ -2324,9 +2510,10 @@ export default function Home() {
           {/* Calibration curve panel */}
           {calibration.length > 0 && (
             <div className="panel" style={{ padding: "14px 18px", marginBottom: 14 }}>
-              <div className="section-label" style={{ marginBottom: 10, color: "var(--accent)" }}>POOL CALIBRATION</div>
-              <div className="font-mono" style={{ fontSize: "0.78rem", color: "var(--text-dim)", marginBottom: 10 }}>
-                ELO predicted win rate vs actual win rate per confidence bucket
+              <div className="section-label" style={{ marginBottom: 4, color: "var(--accent)" }}>DOES &quot;70%&quot; ACTUALLY MEAN 70%?</div>
+              <div style={{ fontSize: "0.82rem", color: "var(--text-dim)", marginBottom: 10 }}>
+                When the model says a favorite has a given win chance, they should win exactly that often.
+                Each pair of bars compares what happened (bright) to what was promised (dim) — matched heights mean honest probabilities.
               </div>
               <div style={{ display: "flex", gap: 8, alignItems: "flex-end", height: 80 }}>
                 {calibration.map((b, i) => {
@@ -2348,34 +2535,40 @@ export default function Home() {
                 })}
               </div>
               <div className="font-mono" style={{ fontSize: "0.76rem", color: "var(--text-dim)", marginTop: 8, display: "flex", gap: 14 }}>
-                <span><span style={{ color: "var(--accent)" }}>■</span> actual win rate</span>
-                <span><span style={{ color: "var(--border2)" }}>■</span> ELO predicted (bucket center)</span>
+                <span><span style={{ color: "var(--accent)" }}>■</span> what happened</span>
+                <span><span style={{ color: "var(--border2)" }}>■</span> what the model promised</span>
               </div>
             </div>
           )}
 
           {/* Permutation test panel */}
           <div className="panel" style={{ padding: "14px 18px", marginBottom: 14 }}>
-            <div className="section-label" style={{ marginBottom: 10, color: "var(--accent)" }}>RANKING SIGNIFICANCE TEST</div>
+            <div className="section-label" style={{ marginBottom: 4, color: "var(--accent)" }}>SKILL OR LUCK?</div>
+            <div style={{ fontSize: "0.82rem", color: "var(--text-dim)", marginBottom: 10 }}>
+              The results get shuffled 200 times as if every game were a coin flip. If random shuffles almost never look as structured as the real standings, the skill differences are real.
+            </div>
             {permTest ? (
               <div>
                 <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 6 }}>
-                  <span className="font-mono" style={{ fontSize: "0.92rem", color: permTest.significant ? "var(--win)" : "var(--neutral)" }}>
-                    p = {permTest.p_value.toFixed(2)}
+                  <span className="font-display" style={{ fontSize: "1.25rem", fontWeight: 700, color: permTest.significant ? "var(--win)" : "var(--neutral)" }}>
+                    {permTest.significant ? "REAL SKILL" : "COULD BE LUCK"}
                   </span>
-                  <span className="font-mono" style={{ fontSize: "0.80rem", color: permTest.significant ? "var(--win)" : "var(--text-dim)" }}>
-                    {permTest.label}
-                  </span>
+                  <Tip tip={`p-value from a 200-permutation test on Bradley-Terry log-likelihood. Below 0.05 = statistically significant skill signal.`}>
+                    <span className="font-mono" style={{ fontSize: "0.84rem", color: "var(--text-dim)" }}>p = {permTest.p_value.toFixed(2)} <span className="info-dot">i</span></span>
+                  </Tip>
                 </div>
-                <div className="font-mono" style={{ fontSize: "0.78rem", color: "var(--text-dim)" }}>
-                  200-permutation test on BT log-likelihood · p&lt;0.05 = real skill signal
+                <div style={{ fontSize: "0.84rem", color: "var(--text)" }}>
+                  {permTest.p_value <= 0.005
+                    ? "Not a single random shuffle looked like the real standings — these ranks are earned."
+                    : `Only ${Math.round(permTest.p_value * 100)}% of pure-luck shuffles looked as structured as the real standings.`}
+                  {" "}{permTest.label}
                 </div>
               </div>
             ) : (
               <div className="font-mono" style={{ fontSize: "0.90rem", color: "var(--text-dim)" }}>
                 {state.games.length < 6 || Object.keys(state.players).length < 3
                   ? "Need ≥6 games and ≥3 players."
-                  : "Click RUN to run permutation test."}
+                  : "Run the test to check whether the standings could be luck."}
               </div>
             )}
             {(state.games.length >= 6 && Object.keys(state.players).length >= 3) && (
@@ -2394,14 +2587,17 @@ export default function Home() {
         </div>
       )}
 
-      <div style={{ marginTop: 36, paddingTop: 14, borderTop: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: 8 }}>
-        <div className="font-mono" style={{ fontSize: "0.78rem", color: "var(--text-dim)", letterSpacing: "0.1em" }}>
-          GRAPHELO v3 · KATZ GRAPH DIFFUSION β=0.5 · τ=90d · 1000-TOURNAMENT MONTE CARLO
-        </div>
+      <div style={{ marginTop: 40, paddingTop: 14, paddingBottom: 28, borderTop: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: 8 }}>
+        <Tip tip="Under the hood: ratings diffuse through the win graph (Katz, β=0.5), results fade over 90 days, and the standings come from 1000 simulated round-robin tournaments." align="left">
+          <div className="font-mono" style={{ fontSize: "0.78rem", color: "var(--text-dim)", letterSpacing: "0.1em" }}>
+            GRAPHELO v3 · KATZ GRAPH DIFFUSION β=0.5 · τ=90d · 1000-TOURNAMENT MONTE CARLO <span className="info-dot">i</span>
+          </div>
+        </Tip>
         <a href="https://eloboard.vercel.app/" target="_blank" rel="noopener noreferrer"
           className="font-mono" style={{ fontSize: "0.78rem", color: "var(--accent)", letterSpacing: "0.1em", textDecoration: "none", opacity: 0.8 }}>
           ELOBOARD ↗
         </a>
+      </div>
       </div>
     </div>
   );

@@ -5,11 +5,11 @@
 @tailwind utilities;
 
 :root {
-  --bg:          #0d1926;
-  --surface:     #162236;
-  --surface2:    #1c2d46;
-  --border:      #2a4060;
-  --border2:     #3a5575;
+  --bg:          #0a141f;
+  --surface:     #121f30;
+  --surface2:    #1a2b42;
+  --border:      #243a58;
+  --border2:     #38547a;
   --accent:      #00c8ff;
   --accent2:     #ff6b35;
   --accent3:     #39ff14;
@@ -24,7 +24,7 @@
 body.light {
   background: #edf2f7;
 }
-body.light::before { display: none; }
+body.light::before, body.light::after { display: none; }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -37,6 +37,18 @@ body {
   line-height: 1.55;
   min-height: 100vh;
   overflow-x: hidden;
+}
+
+/* Ambient glow — depth without noise */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background:
+    radial-gradient(ellipse 70% 38% at 50% -8%, rgba(0, 200, 255, 0.07), transparent 70%),
+    radial-gradient(ellipse 45% 30% at 92% 108%, rgba(255, 107, 53, 0.045), transparent 70%);
+  pointer-events: none;
+  z-index: 0;
 }
 
 /* Nearly invisible scanline — just a touch of texture */
@@ -59,23 +71,39 @@ body::before {
 .font-mono    { font-family: 'Share Tech Mono', monospace; }
 
 .panel {
-  background: var(--surface);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--surface) 92%, var(--accent) 0%), var(--surface));
   border: 1px solid var(--border);
-  border-radius: 5px;
+  border-radius: 7px;
   position: relative;
+  transition: border-color 0.15s;
 }
 
 .panel::before {
   content: '';
   position: absolute;
-  top: 0; left: 0;
-  width: 28px; height: 2px;
+  top: -1px; left: 10px;
+  width: 30px; height: 2px;
   background: var(--accent);
-  border-radius: 2px 0 0 0;
+  border-radius: 0 0 2px 2px;
+  opacity: 0.85;
 }
 
 .panel-accent2::before { background: var(--accent2); }
 .panel-accent3::before { background: var(--accent3); }
+.panel-plain::before   { display: none; }
+
+.panel-hover { cursor: pointer; }
+.panel-hover:hover {
+  border-color: var(--border2);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--surface2) 60%, var(--surface)), var(--surface));
+}
+
+/* Featured panel — soft inner glow header strip */
+.panel-feature {
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--accent) 6%, transparent), transparent 42%),
+    var(--surface);
+}
 
 .btn {
   font-family: 'Rajdhani', sans-serif;
@@ -85,7 +113,7 @@ body::before {
   text-transform: uppercase;
   padding: 0.45rem 1.15rem;
   border: 1px solid var(--accent);
-  border-radius: 3px;
+  border-radius: 4px;
   color: var(--accent);
   background: transparent;
   cursor: pointer;
@@ -93,8 +121,8 @@ body::before {
 }
 
 .btn:hover {
-  background: rgba(0, 200, 255, 0.12);
-  box-shadow: 0 0 10px rgba(0, 200, 255, 0.22);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 22%, transparent);
 }
 .btn:active { transform: scale(0.97); }
 
@@ -103,26 +131,37 @@ body::before {
   color: var(--bg);
 }
 .btn-primary:hover {
-  background: #18d4ff;
-  box-shadow: 0 0 18px rgba(0, 200, 255, 0.4);
+  background: color-mix(in srgb, var(--accent) 88%, white);
+  box-shadow: 0 0 18px color-mix(in srgb, var(--accent) 40%, transparent);
 }
 
 .btn-danger { border-color: var(--lose); color: var(--lose); }
-.btn-danger:hover { background: rgba(255, 68, 68, 0.1); }
+.btn-danger:hover { background: color-mix(in srgb, var(--lose) 10%, transparent); }
+
+.btn-ghost {
+  border-color: var(--border2);
+  color: var(--text-dim);
+}
+.btn-ghost:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: transparent;
+  box-shadow: none;
+}
 
 .input {
   background: var(--surface2);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: 5px;
   color: var(--text-bright);
   padding: 0.5rem 0.9rem;
   font-family: 'Barlow', sans-serif;
   font-size: 0.95rem;
   outline: none;
   width: 100%;
-  transition: border-color 0.15s;
+  transition: border-color 0.15s, box-shadow 0.15s;
 }
-.input:focus { border-color: var(--accent); }
+.input:focus { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 18%, transparent); }
 .input::placeholder { color: var(--text-dim); }
 select.input option { background: var(--surface2); }
 
@@ -139,6 +178,19 @@ select.input option { background: var(--surface2); }
 .tag-win  { border-color: var(--win);     color: var(--win);     }
 .tag-lose { border-color: var(--lose);    color: var(--lose);    }
 
+/* Small bordered chip — streaks, alerts, badges */
+.chip {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 0.74rem;
+  padding: 1px 6px;
+  border: 1px solid;
+  border-radius: 3px;
+  letter-spacing: 0.05em;
+  line-height: 1.5;
+  white-space: nowrap;
+  background: color-mix(in srgb, currentColor 7%, transparent);
+}
+
 .rating-bar {
   height: 3px;
   background: var(--border);
@@ -154,9 +206,24 @@ select.input option { background: var(--surface2); }
   transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
+/* Generic horizontal meter */
+.bar-track {
+  height: 5px;
+  background: var(--surface2);
+  border-radius: 3px;
+  overflow: hidden;
+  flex: 1;
+}
+.bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  background: var(--accent);
+  transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
 @keyframes pulse-glow {
-  0%, 100% { box-shadow: 0 0 6px rgba(0, 200, 255, 0.3); }
-  50%       { box-shadow: 0 0 16px rgba(0, 200, 255, 0.6); }
+  0%, 100% { box-shadow: 0 0 6px color-mix(in srgb, var(--accent3) 35%, transparent); }
+  50%       { box-shadow: 0 0 16px color-mix(in srgb, var(--accent3) 65%, transparent); }
 }
 
 .live-indicator {
@@ -166,22 +233,37 @@ select.input option { background: var(--surface2); }
   animation: pulse-glow 2s infinite;
 }
 
+/* Sticky nav shell */
+.navbar {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--border);
+}
+body.light .navbar { background: color-mix(in srgb, #edf2f7 85%, transparent); }
+
 .tab {
   font-family: 'Rajdhani', sans-serif;
   font-weight: 600;
-  font-size: 0.9rem;
-  letter-spacing: 0.08em;
+  font-size: 0.92rem;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
-  padding: 0.7rem 1.25rem;
+  padding: 0.75rem 1.2rem;
   border: none;
   border-bottom: 2px solid transparent;
   cursor: pointer;
   color: var(--text-dim);
-  transition: color 0.15s, border-color 0.15s;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
   background: transparent;
 }
-.tab:hover  { color: var(--text); }
-.tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+.tab:hover  { color: var(--text); background: color-mix(in srgb, var(--accent) 5%, transparent); }
+.tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+  text-shadow: 0 0 14px color-mix(in srgb, var(--accent) 55%, transparent);
+}
 
 /* Section labels — used as column headers and sub-headers */
 .section-label {
@@ -192,12 +274,156 @@ select.input option { background: var(--surface2); }
   color: var(--text-dim);
 }
 
-.rank-number {
-  font-family: 'Share Tech Mono', monospace;
-  font-size: 0.85rem;
+/* Section heading with rule */
+.section-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 30px 0 12px;
+}
+.section-head .title {
+  font-family: 'Rajdhani', sans-serif;
+  font-weight: 700;
+  font-size: 1.02rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-bright);
+  white-space: nowrap;
+}
+.section-head .sub {
+  font-size: 0.86rem;
   color: var(--text-dim);
-  width: 24px;
-  text-align: right;
+}
+.section-head .rule {
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(90deg, var(--border), transparent);
+  align-self: center;
+}
+
+/* Stat card — headline number + plain-language caption */
+.stat-card {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--surface2) 45%, var(--surface)), var(--surface));
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 10px 14px 9px;
+  min-width: 0;
+}
+.stat-card .stat-label {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 0.70rem;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.stat-card .stat-value {
+  font-family: 'Rajdhani', sans-serif;
+  font-weight: 700;
+  font-size: 1.45rem;
+  line-height: 1.1;
+  color: var(--text-bright);
+  letter-spacing: 0.02em;
+}
+.stat-card .stat-sub {
+  font-size: 0.80rem;
+  color: var(--text-dim);
+  margin-top: 3px;
+  line-height: 1.4;
+}
+
+/* Mini stat — for dense expansion panels */
+.mini-stat {
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 6px 10px;
+  background: color-mix(in srgb, var(--surface2) 35%, transparent);
+}
+.mini-stat .stat-label {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 0.66rem;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin-bottom: 2px;
+  white-space: nowrap;
+}
+.mini-stat .stat-value {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 0.94rem;
+  color: var(--text-bright);
+  white-space: nowrap;
+}
+.mini-stat .stat-sub {
+  font-size: 0.74rem;
+  color: var(--text-dim);
+  margin-top: 1px;
+  white-space: nowrap;
+}
+
+/* CSS-only tooltip: <span class="tip" data-tip="..."> */
+.tip { position: relative; cursor: help; }
+.tip::after {
+  content: attr(data-tip);
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%) translateY(3px);
+  width: max-content;
+  max-width: 280px;
+  padding: 7px 10px;
+  background: color-mix(in srgb, var(--bg) 96%, var(--accent));
+  border: 1px solid var(--border2);
+  border-radius: 5px;
+  color: var(--text);
+  font-family: 'Barlow', sans-serif;
+  font-size: 0.80rem;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  line-height: 1.45;
+  white-space: normal;
+  text-align: left;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s, transform 0.12s;
+  z-index: 100;
+}
+.tip:hover::after {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+.tip-right::after { left: auto; right: 0; transform: translateY(3px); }
+.tip-right:hover::after { transform: translateY(0); }
+.tip-left::after { left: 0; right: auto; transform: translateY(3px); }
+.tip-left:hover::after { transform: translateY(0); }
+
+/* Little info marker that invites hovering */
+.info-dot {
+  display: inline-block;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 0.66rem;
+  color: var(--border2);
+  border: 1px solid var(--border2);
+  border-radius: 50%;
+  width: 13px; height: 13px;
+  line-height: 11px;
+  text-align: center;
+  flex-shrink: 0;
+}
+.tip:hover .info-dot { color: var(--accent); border-color: var(--accent); }
+
+.rank-number {
+  font-family: 'Rajdhani', sans-serif;
+  font-weight: 700;
+  font-size: 1.15rem;
+  color: var(--text-dim);
+  width: 26px;
+  text-align: center;
 }
 
 .player-name {
@@ -219,6 +445,21 @@ select.input option { background: var(--surface2); }
   font-size: 0.9rem;
 }
 
+/* Leaderboard row */
+.lb-row {
+  border-left: 2px solid transparent;
+  transition: border-color 0.15s, background 0.15s;
+}
+.lb-row:hover {
+  border-left-color: var(--accent);
+}
+.lb-row.lb-top {
+  border-left-color: var(--accent);
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--accent) 7%, transparent), transparent 35%),
+    var(--surface);
+}
+
 .scrollbar-thin::-webkit-scrollbar       { width: 4px; }
 .scrollbar-thin::-webkit-scrollbar-track { background: var(--surface); }
 .scrollbar-thin::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
@@ -230,7 +471,7 @@ select.input option { background: var(--surface2); }
   width: 12px; height: 12px;
   border-top: 1px solid var(--border2);
   border-right: 1px solid var(--border2);
-  border-radius: 0 5px 0 0;
+  border-radius: 0 7px 0 0;
 }
 
 @keyframes fadeIn {
@@ -243,4 +484,14 @@ select.input option { background: var(--surface2); }
   height: 2px;
   background: linear-gradient(90deg, var(--accent), var(--accent2), transparent);
   border-radius: 1px;
+}
+
+/* Matrix tables */
+.matrix-table {
+  border-collapse: separate;
+  border-spacing: 2px;
+  font-family: 'Share Tech Mono', monospace;
+}
+.matrix-table td {
+  border-radius: 3px;
 }
