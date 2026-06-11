@@ -1,9 +1,14 @@
 ﻿"use client";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import type { GraphState, Game, RankEntry, PairwisePrediction, PerGameStats, H2hSim, BTResult, CycleAnalysis, LooCvResult, SkillGapTrend, DominancePath, ExtendedPlayerStats, DominanceDuration, InfoGainEntry, KingmakerEntry, CalibrationBucket, PermutationTestResult } from "@/lib/graph-engine";
-import { simulateRoundRobin, predictPairwise, computeElo, computePredictionAccuracy, computeEloHistory, computeMetaStability, computeReliability, computeEloVelocity, computeBradleyTerry, computeCycles, computeCeilingEstimate, computeNemesisProfile, computeParityIndex, computeFormRating, computeLooCvBrier, computeSkillGapTrend, computeRematchUrgency, computeUpsetAlert, kendallTauAgreement, computeExtendedPlayerStats, computeDominanceDuration, computeInformationGain, computeRetroactiveImpact, computeKingmaker, computeCalibrationCurve, computePermutationTest } from "@/lib/graph-engine";
+import { simulateRoundRobin, predictPairwise, computeElo, computePredictionAccuracy, computeEloHistory, computeMetaStability, computeReliability, computeEloVelocity, computeBradleyTerry, computeCycles, computeCeilingEstimate, computeNemesisProfile, computeParityIndex, computeFormRating, computeLooCvBrier, computeSkillGapTrend, computeRematchUrgency, computeUpsetAlert, kendallTauAgreement, computeExtendedPlayerStats, computeDominanceDuration, computeInformationGain, computeRetroactiveImpact, computeKingmaker, computeCalibrationCurve, computePermutationTest, SIMULATION_SCORE_ALPHA } from "@/lib/graph-engine";
 
 type Tab = "ranking" | "log" | "matchup" | "history" | "players" | "system";
+type RankSort = "sim" | "champ" | "winprob" | "placement" | "elo";
+
+const RANK_SORT_LABELS: Record<RankSort, string> = {
+  sim: "SIM SCORE", champ: "TITLE ODDS", winprob: "AVG WIN PROB", placement: "AVG PLACEMENT", elo: "RATING",
+};
 
 const LIGHT_VARS: Record<string, string> = {
   "--bg":         "#eef3f8",
@@ -685,7 +690,7 @@ export default function Home() {
   const [elo, setElo] = useState<Record<string, number>>({});
   const [predAccuracy, setPredAccuracy] = useState<{ correct: number; total: number } | null>(null);
   const [eloHistory, setEloHistory] = useState<Record<string, Array<{ timestamp: number; elo: number }>>>({});
-  const [rankSort, setRankSort] = useState<"tour" | "elo">("tour");
+  const [rankSort, setRankSort] = useState<RankSort>("sim");
   const [metaStability, setMetaStability] = useState<number | null>(null);
   const [selectedRivalry, setSelectedRivalry] = useState<string | null>(null);
   const [theme, setTheme] = useState<"dark" | "light">("dark");
@@ -791,12 +796,15 @@ export default function Home() {
 
   const players = Object.values(state.players);
 
-  const sortedRanking = useMemo(() =>
-    rankSort === "elo"
-      ? [...ranking].sort((a, b) => (elo[b.player_id] ?? 1000) - (elo[a.player_id] ?? 1000))
-      : ranking,
-    [ranking, rankSort, elo],
-  );
+  const sortedRanking = useMemo(() => {
+    switch (rankSort) {
+      case "elo":       return [...ranking].sort((a, b) => (elo[b.player_id] ?? 1000) - (elo[a.player_id] ?? 1000));
+      case "champ":     return [...ranking].sort((a, b) => b.tournament_win_pct - a.tournament_win_pct || a.avg_placement - b.avg_placement);
+      case "winprob":   return [...ranking].sort((a, b) => b.avg_pairwise_win_prob - a.avg_pairwise_win_prob);
+      case "placement": return [...ranking].sort((a, b) => a.avg_placement - b.avg_placement);
+      default:          return ranking; // already sorted by SIM SCORE
+    }
+  }, [ranking, rankSort, elo]);
 
   const rivalries = useMemo(() => {
     const pairs: Record<string, { a: string; b: string; aWins: number; bWins: number; total: number }> = {};
@@ -1121,12 +1129,13 @@ export default function Home() {
               <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10 }}>
                 <span className="font-display" style={{ fontSize: "1.02rem", fontWeight: 700, letterSpacing: "0.14em", color: "var(--text-bright)" }}>LEADERBOARD</span>
                 <div style={{ flex: 1, height: 1, background: "linear-gradient(90deg, var(--border), transparent)" }} />
-                <span className="font-mono" style={{ fontSize: "0.74rem", color: "var(--text-dim)" }}>SORT</span>
-                {(["tour", "elo"] as const).map(s => (
-                  <button key={s} className="btn" onClick={() => setRankSort(s)} style={{ padding: "2px 9px", fontSize: "0.78rem", background: rankSort === s ? "var(--accent)" : undefined, color: rankSort === s ? "#000" : undefined }}>
-                    {s === "tour" ? "TITLE ODDS" : "RATING"}
-                  </button>
-                ))}
+                <span className="font-mono" style={{ fontSize: "0.74rem", color: "var(--text-dim)" }}>SORTED BY</span>
+                <select className="input" value={rankSort} onChange={e => setRankSort(e.target.value as RankSort)}
+                  style={{ padding: "2px 6px", fontSize: "0.78rem", width: "auto" }}>
+                  {(Object.keys(RANK_SORT_LABELS) as RankSort[]).map(s => (
+                    <option key={s} value={s}>{RANK_SORT_LABELS[s]}{s === "sim" ? ` (α=${SIMULATION_SCORE_ALPHA})` : ""}</option>
+                  ))}
+                </select>
                 <button className="btn btn-ghost" title="Recompute rankings" style={{ padding: "3px 8px", fontSize: "0.74rem" }} onClick={() => computeRanking(state)}>↺</button>
               </div>
 
@@ -1135,8 +1144,8 @@ export default function Home() {
                 <span className="section-label">#</span>
                 <span className="section-label">PLAYER</span>
                 <span className="section-label" style={{ textAlign: "right" }}>WIN%</span>
-                <Tip tip="Share of 1000 simulated round-robin tournaments this player wins outright. The bars show where they tend to finish." align="right">
-                  <span className="section-label" style={{ textAlign: "right", display: "block" }}>TITLE ODDS</span>
+                <Tip tip={`Composite score (0-100) from 1000 simulated round-robin tournaments — ${Math.round(SIMULATION_SCORE_ALPHA * 100)}% title odds, ${Math.round((1 - SIMULATION_SCORE_ALPHA) * 100)}% how often they'd beat a random pool member. Click a row for the full breakdown. The bars show where they tend to finish.`} align="right">
+                  <span className="section-label" style={{ textAlign: "right", display: "block" }}>SIM SCORE</span>
                 </Tip>
                 <Tip tip="ELO rating (1000 = average). Dot = how much data backs it · arrow = current trajectory." align="right">
                   <span className="section-label" style={{ textAlign: "right", display: "block" }}>RATING</span>
@@ -1192,7 +1201,7 @@ export default function Home() {
                         {sv.games_played > 0 ? pct(sv.win_rate, 0) : "—"}
                       </div>
                       <div style={{ textAlign: "right" }}>
-                        <span className="rating-value" style={{ fontSize: "0.95rem" }}>{pct(r.tournament_win_pct, 1)}</span>
+                        <span className="rating-value" style={{ fontSize: "0.95rem" }}>{Math.round(r.sim_score * 100)}</span>
                         <PlacementSparkline dist={r.placement_dist} />
                       </div>
                       <div style={{ textAlign: "right" }}>
@@ -1283,6 +1292,38 @@ export default function Home() {
                                 </div>
                               );
                             })}
+                          </div>
+                          {/* SIM SCORE breakdown */}
+                          <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid var(--border)" }}>
+                            <div className="section-label" style={{ marginBottom: 8, color: "var(--accent)" }}>SIM SCORE BREAKDOWN</div>
+                            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 8 }}>
+                              <MiniStat
+                                label="SIM SCORE"
+                                value={Math.round(r.sim_score * 100)}
+                                sub={`${Math.round(SIMULATION_SCORE_ALPHA * 100)}% title odds + ${Math.round((1 - SIMULATION_SCORE_ALPHA) * 100)}% consistency`}
+                                color="var(--accent)"
+                                tip="Composite ranking score out of 100 — this is what the leaderboard sorts by. Blends peak performance (championship odds) with consistent dominance (average head-to-head win rate across the pool)."
+                              />
+                              <MiniStat
+                                label="TITLE ODDS"
+                                value={pct(r.tournament_win_pct, 1)}
+                                sub={`normalized ${r.champ_pct_norm.toFixed(2)}`}
+                                tip={`Share of 1000 simulated tournaments this player wins outright. With ${ranking.length} players, winning your "fair share" (${pct(1 / ranking.length, 1)}) scores a normalized 1.00 — that's the value SIM SCORE actually uses, capped so one dominant player doesn't flatten everyone else's scale.`}
+                              />
+                              <MiniStat
+                                label="AVG WIN PROB"
+                                value={pct(r.avg_pairwise_win_prob, 1)}
+                                sub="vs. a random pool member"
+                                color={r.avg_pairwise_win_prob > 0.52 ? "var(--win)" : r.avg_pairwise_win_prob < 0.48 ? "var(--lose)" : undefined}
+                                tip="Average simulated head-to-head win rate against every other player in the pool — the same number shown on each matchup card, averaged across opponents. 50% is exactly average; these always sum to half the pool size across all players."
+                              />
+                              <MiniStat
+                                label="AVG PLACEMENT"
+                                value={`${r.avg_placement.toFixed(1)} / ${ranking.length}`}
+                                sub={r.avg_placement <= (ranking.length + 1) / 2 ? "top half on average" : "bottom half on average"}
+                                tip="Average finishing position across 1000 simulated tournaments. 1.0 = always finishes 1st. Shown for context — not used directly in SIM SCORE, since AVG WIN PROB already captures this signal."
+                              />
+                            </div>
                           </div>
                           {(() => {
                             const sorted = [...state.games].sort((a, b) => a.timestamp - b.timestamp);
@@ -1413,6 +1454,7 @@ export default function Home() {
                             const eloRankIdx = [...sortedRanking].sort((a, b) => (elo[b.player_id] ?? 1000) - (elo[a.player_id] ?? 1000)).findIndex(x => x.player_id === r.player_id);
                             const ext: ExtendedPlayerStats = computeExtendedPlayerStats(state, r.player_id, eloHistory[r.player_id] ?? [], eloRankIdx);
                             const dur: DominanceDuration | null = computeDominanceDuration(state, r.player_id);
+                            const noScoreSub = "no round scores logged";
                             return (
                               <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid var(--border)" }}>
                                 <div className="section-label" style={{ marginBottom: 8, color: "var(--accent)" }}>DEEP STATS</div>
@@ -1424,43 +1466,50 @@ export default function Home() {
                                     sub={ext.elo_volatility > 20 ? "wild swings" : "steady mover"}
                                     tip={`Typical rating swing per game. Small = consistent results, large = boom-or-bust.`}
                                   />
-                                  {ext.has_score_data && (
-                                    <>
-                                      <MiniStat label="KILLS / ROUND" value={ext.kill_rate.toFixed(2)} tip="Average kills per round played." />
-                                      <MiniStat label="ROUND WIN%" value={`${Math.round(ext.round_win_rate * 100)}%`} tip="Share of individual rounds won, across all games." />
-                                      <MiniStat
-                                        label="CLUTCH FACTOR"
-                                        value={`${ext.efficiency > 0 ? "+" : ""}${ext.efficiency.toFixed(2)}`}
-                                        color={ext.efficiency > 0.02 ? "var(--win)" : ext.efficiency < -0.02 ? "var(--lose)" : "var(--text-dim)"}
-                                        sub={ext.efficiency > 0.02 ? "wins more than frags explain" : ext.efficiency < -0.02 ? "frags more than they win" : "wins exactly what they frag"}
-                                        tip="Round win rate minus kill rate. Positive = converts rounds without needing the kills (clutches, positioning). Negative = gets kills but loses rounds anyway."
-                                      />
-                                      <MiniStat
-                                        label="NET KILLS / RD"
-                                        value={`${ext.aggression > 0 ? "+" : ""}${ext.aggression.toFixed(2)}`}
-                                        color={ext.aggression > 0 ? "var(--win)" : ext.aggression < 0 ? "var(--lose)" : undefined}
-                                        tip="Kills minus deaths per round — the trade balance each round."
-                                      />
-                                    </>
-                                  )}
-                                  {ext.upward_wr !== null && (
-                                    <MiniStat
-                                      label="VS TOP HALF"
-                                      value={`${Math.round(ext.upward_wr * 100)}%`}
-                                      color={ext.upward_wr > 0.5 ? "var(--win)" : "var(--lose)"}
-                                      sub={ext.upward_wr > 0.5 ? "punches up" : "struggles up"}
-                                      tip="Win rate against players ranked above the median."
-                                    />
-                                  )}
-                                  {ext.downward_wr !== null && (
-                                    <MiniStat
-                                      label="VS BOTTOM HALF"
-                                      value={`${Math.round(ext.downward_wr * 100)}%`}
-                                      color={ext.downward_wr > 0.5 ? "var(--win)" : "var(--lose)"}
-                                      sub={ext.downward_wr > 0.5 ? "takes care of business" : "drops winnable games"}
-                                      tip="Win rate against players ranked below the median."
-                                    />
-                                  )}
+                                  <MiniStat
+                                    label="KILLS / ROUND"
+                                    value={ext.has_score_data ? ext.kill_rate.toFixed(2) : "—"}
+                                    sub={ext.has_score_data ? undefined : noScoreSub}
+                                    tip="Average kills per round played."
+                                  />
+                                  <MiniStat
+                                    label="ROUND WIN%"
+                                    value={ext.has_score_data ? `${Math.round(ext.round_win_rate * 100)}%` : "—"}
+                                    sub={ext.has_score_data ? undefined : noScoreSub}
+                                    tip="Share of individual rounds won, across all games."
+                                  />
+                                  <MiniStat
+                                    label="CLUTCH FACTOR"
+                                    value={ext.has_score_data ? `${ext.efficiency > 0 ? "+" : ""}${ext.efficiency.toFixed(2)}` : "—"}
+                                    color={!ext.has_score_data ? undefined : ext.efficiency > 0.02 ? "var(--win)" : ext.efficiency < -0.02 ? "var(--lose)" : "var(--text-dim)"}
+                                    sub={ext.has_score_data ? (ext.efficiency > 0.02 ? "wins more than frags explain" : ext.efficiency < -0.02 ? "frags more than they win" : "wins exactly what they frag") : noScoreSub}
+                                    tip="Round win rate minus kill rate. Positive = converts rounds without needing the kills (clutches, positioning). Negative = gets kills but loses rounds anyway."
+                                  />
+                                  <MiniStat
+                                    label="NET KILLS / RD"
+                                    value={ext.has_score_data ? `${ext.aggression > 0 ? "+" : ""}${ext.aggression.toFixed(2)}` : "—"}
+                                    color={!ext.has_score_data ? undefined : ext.aggression > 0 ? "var(--win)" : ext.aggression < 0 ? "var(--lose)" : undefined}
+                                    sub={ext.has_score_data ? undefined : noScoreSub}
+                                    tip="Kills minus deaths per round — the trade balance each round."
+                                  />
+                                  <MiniStat
+                                    label="VS TOP HALF"
+                                    value={ext.upward_wr !== null ? `${Math.round(ext.upward_wr * 100)}%` : "—"}
+                                    color={ext.upward_wr === null ? undefined : ext.upward_wr > 0.5 ? "var(--win)" : "var(--lose)"}
+                                    sub={ext.upward_wr !== null
+                                      ? (ext.upward_wr > 0.5 ? "punches up" : "struggles up")
+                                      : (eloRankIdx === 0 ? "ranked #1 — nobody above" : "no games vs higher ranks yet")}
+                                    tip="Win rate against players ranked above the median."
+                                  />
+                                  <MiniStat
+                                    label="VS BOTTOM HALF"
+                                    value={ext.downward_wr !== null ? `${Math.round(ext.downward_wr * 100)}%` : "—"}
+                                    color={ext.downward_wr === null ? undefined : ext.downward_wr > 0.5 ? "var(--win)" : "var(--lose)"}
+                                    sub={ext.downward_wr !== null
+                                      ? (ext.downward_wr > 0.5 ? "takes care of business" : "drops winnable games")
+                                      : (eloRankIdx === ranking.length - 1 ? "ranked last — nobody below" : "no games vs lower ranks yet")}
+                                    tip="Win rate against players ranked below the median."
+                                  />
                                   <MiniStat
                                     label="OPPONENT STRENGTH"
                                     value={Math.round(ext.strength_of_schedule)}
@@ -1473,16 +1522,17 @@ export default function Home() {
                                     sub={ext.predictability_entropy > 0.9 ? "total coin flip" : ext.predictability_entropy > 0.6 ? "hard to predict" : "predictable results"}
                                     tip="How predictable their results are. 100% = outcomes nearly always go one way; 0% = pure 50/50 chaos."
                                   />
-                                  {dur && (
-                                    <>
-                                      <MiniStat label="BEST RANK" value={`#${dur.peak_rank}`} color={dur.peak_rank === 1 ? "var(--accent)" : undefined} tip="Highest leaderboard position ever held." />
-                                      <MiniStat
-                                        label={`HOLDING #${dur.current_rank}`}
-                                        value={`${dur.games_at_rank} games`}
-                                        tip={`How long they've sat at their current rank${dur.days_at_rank > 0 ? ` (~${dur.days_at_rank} days)` : ""}.`}
-                                      />
-                                    </>
-                                  )}
+                                  <MiniStat
+                                    label="BEST RANK"
+                                    value={dur ? `#${dur.peak_rank}` : "—"}
+                                    color={dur && dur.peak_rank === 1 ? "var(--accent)" : undefined}
+                                    tip="Highest leaderboard position ever held."
+                                  />
+                                  <MiniStat
+                                    label="CURRENT STREAK"
+                                    value={dur ? `#${dur.current_rank} for ${dur.games_at_rank}g` : "—"}
+                                    tip={dur ? `How long they've sat at their current rank (#${dur.current_rank})${dur.days_at_rank > 0 ? `, ~${dur.days_at_rank} days` : ""}.` : "How long they've held their current leaderboard rank."}
+                                  />
                                 </div>
                               </div>
                             );

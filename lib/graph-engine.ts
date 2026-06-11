@@ -59,6 +59,10 @@ export interface RankEntry {
   stat_vec: StatVector;
   matchup_table: Record<string, number>;
   page_rank: number;          // reverse PageRank score (higher = more dominant)
+  avg_pairwise_win_prob: number; // W_i: mean simulated head-to-head win rate vs. every other player (0-1)
+  avg_placement: number;         // P_i: mean tournament finish, 1-indexed (1 = always wins, N = always last)
+  champ_pct_norm: number;        // C_i normalized against the theoretical fair share (1/N), capped at 1
+  sim_score: number;              // composite ranking score, see SIMULATION_SCORE_ALPHA
 }
 
 // H2H simulation counts: h2h_sim[a][b] = # simulated matches a beat b across all runs
@@ -157,6 +161,12 @@ export interface SkillGapTrend {
 const TAU_DAYS = 90;
 const SIM_ROUNDS = 1000;
 const BETA = 0.5;
+
+// Weight given to championship % (peak performance) vs. average pairwise win
+// probability (consistent dominance) in SIM SCORE. 0 = pure pairwise dominance,
+// 1 = pure championship %. Low default because championship % is high-variance
+// at small game-pool sizes.
+export const SIMULATION_SCORE_ALPHA = 0.3;
 
 // Adaptive stat prior — decays toward PRIOR_W_MIN as game data accumulates.
 // PRIOR_HALF_LIFE: avg games at which prior weight halves (lower = trust data faster).
@@ -501,6 +511,22 @@ export function computeEloVelocity(
 
 // ─── Monte Carlo Simulation ───────────────────────────────────────────────────
 
+// Composite SIM SCORE: blends championship % (peak performance, normalized
+// against the "fair share" 1/N a uniformly-skilled player would win) with
+// average pairwise win probability (consistent dominance across the pool).
+// Pure function of already-computed per-player numbers, so it can be
+// recomputed client-side for a different alpha without rerunning the simulation.
+export function simulationScore(
+  champPct: number,
+  avgPairwiseWinProb: number,
+  nPlayers: number,
+  alpha: number = SIMULATION_SCORE_ALPHA,
+): number {
+  const fairShare = nPlayers > 0 ? 1 / nPlayers : 0;
+  const champNorm = fairShare > 0 ? Math.min(1, champPct / fairShare) : 0;
+  return alpha * champNorm + (1 - alpha) * avgPairwiseWinProb;
+}
+
 export function simulateRoundRobin(state: GraphState): SimulationResult {
   const players = Object.values(state.players);
   if (players.length === 0) return { ranking: [], h2h_sim: {}, champ_counts: {} };
@@ -561,31 +587,34 @@ export function simulateRoundRobin(state: GraphState): SimulationResult {
     if (leaders.length === 1) champCount[leaders[0].id]++;
   }
 
-  const medianRank = (dist: number[]) => {
-    let cum = 0;
-    for (let i = 0; i < dist.length; i++) {
-      cum += dist[i];
-      if (cum * 2 >= SIM_ROUNDS) return i;
-    }
-    return dist.length - 1;
-  };
-
   const pageRank = computePageRank(state);
+  const fairShare = 1 / n;
 
   const ranking: RankEntry[] = players
-    .map(p => ({
-      player_id:          p.id,
-      display_name:       p.display_name,
-      tournament_wins:    champCount[p.id],
-      tournament_win_pct: champCount[p.id] / SIM_ROUNDS,
-      placement_dist:     placementCounts[p.id],
-      stat_vec:           statVecs[p.id],
-      matchup_table:      matchupTable[p.id],
-      page_rank:          pageRank[p.id] ?? 0,
-    }))
+    .map(p => {
+      const champPct = champCount[p.id] / SIM_ROUNDS;
+      const avgPairwiseWinProb = n > 1
+        ? players.filter(q => q.id !== p.id).reduce((sum, q) => sum + h2h[p.id][q.id] / SIM_ROUNDS, 0) / (n - 1)
+        : 0;
+      const avgPlacement = placementCounts[p.id].reduce((sum, count, k) => sum + count * (k + 1), 0) / SIM_ROUNDS;
+      return {
+        player_id:          p.id,
+        display_name:       p.display_name,
+        tournament_wins:    champCount[p.id],
+        tournament_win_pct: champPct,
+        placement_dist:     placementCounts[p.id],
+        stat_vec:           statVecs[p.id],
+        matchup_table:      matchupTable[p.id],
+        page_rank:          pageRank[p.id] ?? 0,
+        avg_pairwise_win_prob: avgPairwiseWinProb,
+        avg_placement:         avgPlacement,
+        champ_pct_norm:        Math.min(1, champPct / fairShare),
+        sim_score:             simulationScore(champPct, avgPairwiseWinProb, n, SIMULATION_SCORE_ALPHA),
+      };
+    })
     .sort((a, b) =>
-      b.tournament_win_pct - a.tournament_win_pct ||
-      medianRank(a.placement_dist) - medianRank(b.placement_dist)
+      b.sim_score - a.sim_score ||
+      a.avg_placement - b.avg_placement
     );
 
   return { ranking, h2h_sim: h2h, champ_counts: champCount };
