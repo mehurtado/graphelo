@@ -1,7 +1,7 @@
 ﻿"use client";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import type { GraphState, Game, RankEntry, PairwisePrediction, PerGameStats, H2hSim, BTResult, CycleAnalysis, LooCvResult, SkillGapTrend, DominancePath, ExtendedPlayerStats, DominanceDuration, InfoGainEntry, KingmakerEntry, CalibrationBucket, PermutationTestResult } from "@/lib/graph-engine";
-import { simulateRoundRobin, predictPairwise, computeElo, computePredictionAccuracy, computeEloHistory, computeMetaStability, computeReliability, computeEloVelocity, computeBradleyTerry, computeCycles, computeCeilingEstimate, computeNemesisProfile, computeParityIndex, computeFormRating, computeLooCvBrier, computeSkillGapTrend, computeRematchUrgency, computeUpsetAlert, kendallTauAgreement, computeExtendedPlayerStats, computeDominanceDuration, computeInformationGain, computeRetroactiveImpact, computeKingmaker, computeCalibrationCurve, computePermutationTest, SIMULATION_SCORE_ALPHA } from "@/lib/graph-engine";
+import { simulateRoundRobin, predictPairwise, computeElo, computePredictionAccuracy, computeEloHistory, computeMetaStability, computeReliability, computeEloVelocity, computeBradleyTerry, computeCycles, computeCeilingEstimate, computeNemesisProfile, computeParityIndex, computeFormRating, computeLooCvBrier, computeSkillGapTrend, computeRematchUrgency, computeUpsetAlert, kendallTauAgreement, computeExtendedPlayerStats, computeDominanceDuration, computeInformationGain, computeRetroactiveImpact, computeKingmaker, computeCalibrationCurve, computePermutationTest, SIMULATION_SCORE_ALPHA, roundWinRateFromMatchProb } from "@/lib/graph-engine";
 
 type Tab = "ranking" | "log" | "matchup" | "history" | "players" | "system";
 type RankSort = "sim" | "champ" | "winprob" | "placement" | "elo";
@@ -384,34 +384,8 @@ function computeArchetype(playerId: string, ranking: RankEntry[], state: GraphSt
   return "THE SOLDIER";
 }
 
-function binomCoeff(n: number, k: number): number {
-  if (k === 0 || k === n) return 1;
-  if (k > n) return 0;
-  let r = 1;
-  for (let i = 0; i < k; i++) r *= (n - i) / (i + 1);
-  return Math.round(r);
-}
-
-function matchWinProb(p: number, target = 7): number {
-  let prob = 0;
-  for (let k = target; k <= 2 * target - 1; k++) {
-    prob += binomCoeff(k - 1, target - 1) * Math.pow(p, target) * Math.pow(1 - p, k - target);
-  }
-  return prob;
-}
-
-function roundWinRate(P: number, target = 7): number {
-  if (Math.abs(P - 0.5) < 1e-9) return 0.5;
-  let lo = 0, hi = 1;
-  for (let i = 0; i < 64; i++) {
-    const mid = (lo + hi) / 2;
-    if (matchWinProb(mid, target) < P) lo = mid; else hi = mid;
-  }
-  return (lo + hi) / 2;
-}
-
 function predictScore(p_a_wins: number, target = 7): { aKills: number; bKills: number } {
-  const p = roundWinRate(Math.max(0.001, Math.min(0.999, p_a_wins)), target);
+  const p = roundWinRateFromMatchProb(Math.max(0.001, Math.min(0.999, p_a_wins)), target);
   // E[loser rounds] = NB(target, p) mean = target*(1-p)/p, capped at target-1
   const loser = Math.min(target - 1, Math.max(0, Math.round(target * (1 - p) / p)));
   return p_a_wins >= 0.5
@@ -479,7 +453,7 @@ function evidenceLabel(mass: number, directGames: number): { label: string; colo
 
 // Info-gain label → star display
 function gainStars(label: string): string {
-  return label === "VERY HIGH" ? "★★★" : label === "HIGH" ? "★★" : label === "MED" ? "★" : "·";
+  return label === "VERY HIGH" ? "★★★★" : label === "HIGH" ? "★★★☆" : label === "MED" ? "★★☆☆" : "★☆☆☆";
 }
 
 function generatePowerBlurb(
@@ -783,7 +757,7 @@ export default function Home() {
       setLooCv(computeLooCvBrier(s));
       setSkillGap(computeSkillGapTrend(s));
       setFormRating(computeFormRating(s));
-      if (bt) setInfoGain(computeInformationGain(s, bt));
+      if (bt) setInfoGain(computeInformationGain(s, bt, result.h2h_sim));
       setRetroImpact(computeRetroactiveImpact(s));
       setKingmaker(computeKingmaker(s));
       setCalibration(computeCalibrationCurve(s));

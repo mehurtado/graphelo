@@ -1251,8 +1251,78 @@ export function computeDominanceDuration(
   };
 }
 
+// ─── Scoreline Probability Model (Negative Binomial) ──────────────────────────
+// A "match" is first-to-MATCH_TARGET rounds. These convert between match-level
+// win probability and per-round win rate, and enumerate every possible final
+// scoreline with its probability.
+
+const MATCH_TARGET = 7;
+
+export function binomialCoeff(n: number, k: number): number {
+  if (k === 0 || k === n) return 1;
+  if (k > n) return 0;
+  let result = 1;
+  for (let i = 0; i < k; i++) result *= (n - i) / (i + 1);
+  return Math.round(result);
+}
+
+// Per-round win rate p -> probability of winning a first-to-`target` match.
+export function matchWinProb(p: number, target: number = MATCH_TARGET): number {
+  let prob = 0;
+  for (let k = target; k <= 2 * target - 1; k++) {
+    prob += binomialCoeff(k - 1, target - 1) * Math.pow(p, target) * Math.pow(1 - p, k - target);
+  }
+  return prob;
+}
+
+// Inverse of matchWinProb (bisection): match win probability -> per-round win rate.
+export function roundWinRateFromMatchProb(P: number, target: number = MATCH_TARGET, tolerance: number = 1e-8): number {
+  if (Math.abs(P - 0.5) < tolerance) return 0.5;
+  let lo = 0.001, hi = 0.999;
+  for (let i = 0; i < 200; i++) {
+    const mid = (lo + hi) / 2;
+    const prob = matchWinProb(mid, target);
+    if (Math.abs(prob - P) < tolerance) return mid;
+    if (prob < P) lo = mid; else hi = mid;
+  }
+  return (lo + hi) / 2;
+}
+
+export interface ScorelineOutcome {
+  scoreA: number;
+  scoreB: number;
+  prob: number;
+}
+
+// Probability of a specific (scoreA, scoreB) scoreline given A's per-round win
+// rate p. The winner clinches the final round having won (target-1) of the
+// (total-1) rounds before it — a negative binomial.
+export function scorelineProbability(scoreA: number, scoreB: number, p: number, target: number = MATCH_TARGET): number {
+  const aWins = scoreA === target;
+  const pWinner = aWins ? p : 1 - p;
+  const loserScore = aWins ? scoreB : scoreA;
+  const totalRounds = target + loserScore;
+  return binomialCoeff(totalRounds - 1, target - 1) *
+         Math.pow(pWinner, target) *
+         Math.pow(1 - pWinner, loserScore);
+}
+
+// All 13 possible first-to-`target` scorelines with their probabilities (sum to 1).
+export function allScorelineProbabilities(p: number, target: number = MATCH_TARGET): ScorelineOutcome[] {
+  const outcomes: ScorelineOutcome[] = [];
+  for (let loser = 0; loser < target; loser++) {
+    outcomes.push({ scoreA: target, scoreB: loser, prob: scorelineProbability(target, loser, p, target) });
+    outcomes.push({ scoreA: loser, scoreB: target, prob: scorelineProbability(loser, target, p, target) });
+  }
+  return outcomes;
+}
+
 // ─── Information Gain Recommendation ─────────────────────────────────────────
-// Fisher approximation: Sherman-Morrison rank-1 update to BT covariance matrix.
+// Exact: enumerate every possible scoreline for a candidate match, weight each
+// by its probability under the current model, refit BT under each hypothetical
+// outcome, and take the probability-weighted average uncertainty reduction.
+// Unplayed pairs naturally outscore rematches — a first direct game collapses a
+// large amount of transitive uncertainty, which falls straight out of the math.
 
 export interface InfoGainEntry {
   a: string;
@@ -1264,50 +1334,78 @@ export interface InfoGainEntry {
   context: string;
 }
 
-export function computeInformationGain(state: GraphState, bt: BTResult): InfoGainEntry[] {
+// Total model uncertainty: sum of squared standard errors across all BT ratings.
+function totalUncertainty(bt: BTResult): number {
+  return Object.values(bt.se).reduce((sum, se) => sum + se * se, 0);
+}
+
+function exactInfoGain(state: GraphState, aId: string, bId: string, uCurrent: number, matchProb: number): number {
+  const p = roundWinRateFromMatchProb(Math.min(0.999, Math.max(0.001, matchProb)));
+
+  let expectedAfter = 0;
+  for (const { scoreA, scoreB, prob } of allScorelineProbabilities(p)) {
+    if (prob < 1e-6) continue; // negligible outcome — skip the BT refit
+
+    const aWins = scoreA === MATCH_TARGET;
+    const synGame: Game = {
+      id: "synthetic",
+      timestamp: Date.now(),
+      winner_id: aWins ? aId : bId,
+      loser_id:  aWins ? bId : aId,
+      winner_stats: { kills: 0, deaths: 0 },
+      loser_stats:  { kills: 0, deaths: 0 },
+      score_winner: MATCH_TARGET,
+      score_loser:  aWins ? scoreB : scoreA,
+    };
+
+    const hypoBT = computeBradleyTerry({ players: state.players, games: [...state.games, synGame] });
+    if (!hypoBT) continue;
+    expectedAfter += prob * totalUncertainty(hypoBT);
+  }
+
+  return uCurrent - expectedAfter;
+}
+
+export function computeInformationGain(state: GraphState, bt: BTResult, h2hSim: H2hSim): InfoGainEntry[] {
   const ids = Object.keys(state.players);
   const n = ids.length;
   if (n < 2) return [];
 
-  const SCALE = 400 / Math.log(10);
-  const elo = computeElo(state);
+  const uCurrent = totalUncertainty(bt);
 
   const candidates: InfoGainEntry[] = [];
   for (let i = 0; i < n; i++) {
     for (let j = i + 1; j < n; j++) {
       const ai = ids[i], bi = ids[j];
       const betaA = bt.beta[ai] ?? 0, betaB = bt.beta[bi] ?? 0;
-      const seA   = bt.se[ai]   ?? 200, seB   = bt.se[bi]   ?? 200;
-
       const p = 1 / (1 + Math.exp(betaB - betaA));
-      const w = p * (1 - p);                         // Fisher info of one observation
-      const varA = (seA / SCALE) ** 2;               // variance in beta units
-      const varB = (seB / SCALE) ** 2;
-      const info_gain = -((-w * varA * varA / (1 + w * varA)) + (-w * varB * varB / (1 + w * varB)));
+
+      const matchProb = (h2hSim[ai]?.[bi] ?? SIM_ROUNDS / 2) / SIM_ROUNDS;
+      const info_gain = exactInfoGain(state, ai, bi, uCurrent, matchProb);
 
       const directGames = state.games.filter(g =>
         (g.winner_id === ai && g.loser_id === bi) ||
         (g.winner_id === bi && g.loser_id === ai)
       ).length;
 
-      const aName = state.players[ai]?.display_name ?? ai;
-      const bName = state.players[bi]?.display_name ?? bi;
-      let context = '';
+      let context: string;
       if (directGames === 0) {
-        context = `First direct meeting · ${aName} vs ${bName}`;
+        context = "First ever meeting — any result teaches the model a lot";
       } else {
         const lastH2H = [...state.games]
           .filter(g => (g.winner_id === ai && g.loser_id === bi) || (g.winner_id === bi && g.loser_id === ai))
           .sort((a, b) => b.timestamp - a.timestamp)[0];
+        let drift = 0;
         if (lastH2H) {
           const eloThen = computeElo({ players: state.players, games: state.games.filter(g => g.timestamp <= lastH2H.timestamp) });
           const pThen = 1 / (1 + Math.pow(10, ((eloThen[bi] ?? 1000) - (eloThen[ai] ?? 1000)) / 400));
-          const drift = Math.round(Math.abs(p - pThen) * 100);
-          context = drift > 5
-            ? `Rating drift +${drift}% since last meeting`
-            : `Rematch · ${directGames} prior game${directGames > 1 ? 's' : ''}`;
+          drift = Math.abs(p - pThen);
         }
+        context = drift > 0.15
+          ? "Ratings have shifted significantly since last meeting"
+          : `High model uncertainty about this matchup · ${directGames} prior game${directGames > 1 ? 's' : ''}`;
       }
+
       candidates.push({ a: ai, b: bi, info_gain, direct_games: directGames, win_prob: p, label: "LOW", context });
     }
   }
