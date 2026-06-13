@@ -635,18 +635,34 @@ export function computeElo(state: GraphState): Record<string, number> {
   return elo;
 }
 
-export function computeEloHistory(state: GraphState): Record<string, Array<{ timestamp: number; elo: number }>> {
+export interface EloHistoryPoint {
+  timestamp: number;
+  elo: number;
+  opponent_id: string;
+  result: "W" | "L";
+  score_for?: number;
+  score_against?: number;
+  delta: number;
+}
+
+export function computeEloHistory(state: GraphState): Record<string, EloHistoryPoint[]> {
   const K = 32;
   const current: Record<string, number> = {};
-  const history: Record<string, Array<{ timestamp: number; elo: number }>> = {};
+  const history: Record<string, EloHistoryPoint[]> = {};
   for (const id of Object.keys(state.players)) { current[id] = 1000; history[id] = []; }
   for (const g of [...state.games].sort((a, b) => a.timestamp - b.timestamp)) {
     const ra = current[g.winner_id] ?? 1000, rb = current[g.loser_id] ?? 1000;
     const ea = 1 / (1 + Math.pow(10, (rb - ra) / 400));
     current[g.winner_id] = Math.round(ra + K * (1 - ea));
     current[g.loser_id]  = Math.round(rb + K * (0 - (1 - ea)));
-    if (history[g.winner_id]) history[g.winner_id].push({ timestamp: g.timestamp, elo: current[g.winner_id] });
-    if (history[g.loser_id])  history[g.loser_id].push({  timestamp: g.timestamp, elo: current[g.loser_id] });
+    if (history[g.winner_id]) history[g.winner_id].push({
+      timestamp: g.timestamp, elo: current[g.winner_id], opponent_id: g.loser_id, result: "W",
+      score_for: g.score_winner, score_against: g.score_loser, delta: current[g.winner_id] - ra,
+    });
+    if (history[g.loser_id]) history[g.loser_id].push({
+      timestamp: g.timestamp, elo: current[g.loser_id], opponent_id: g.winner_id, result: "L",
+      score_for: g.score_loser, score_against: g.score_winner, delta: current[g.loser_id] - rb,
+    });
   }
   return history;
 }

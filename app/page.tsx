@@ -1,6 +1,6 @@
 ﻿"use client";
 import { useState, useEffect, useCallback, useMemo } from "react";
-import type { GraphState, Game, RankEntry, PairwisePrediction, PerGameStats, H2hSim, BTResult, CycleAnalysis, LooCvResult, SkillGapTrend, DominancePath, ExtendedPlayerStats, DominanceDuration, InfoGainEntry, KingmakerEntry, CalibrationBucket, PermutationTestResult } from "@/lib/graph-engine";
+import type { GraphState, Game, RankEntry, PairwisePrediction, PerGameStats, H2hSim, BTResult, CycleAnalysis, LooCvResult, SkillGapTrend, DominancePath, ExtendedPlayerStats, DominanceDuration, InfoGainEntry, KingmakerEntry, CalibrationBucket, PermutationTestResult, EloHistoryPoint } from "@/lib/graph-engine";
 import { simulateRoundRobin, predictPairwise, computeElo, computePredictionAccuracy, computeEloHistory, computeMetaStability, computeReliability, computeEloVelocity, computeBradleyTerry, computeCycles, computeCeilingEstimate, computeNemesisProfile, computeParityIndex, computeFormRating, computeLooCvBrier, computeSkillGapTrend, computeRematchUrgency, computeUpsetAlert, kendallTauAgreement, computeExtendedPlayerStats, computeDominanceDuration, computeInformationGain, computeRetroactiveImpact, computeKingmaker, computeCalibrationCurve, computePermutationTest, SIMULATION_SCORE_ALPHA, roundWinRateFromMatchProb } from "@/lib/graph-engine";
 
 type Tab = "ranking" | "log" | "matchup" | "history" | "players" | "system";
@@ -29,6 +29,7 @@ const LIGHT_VARS: Record<string, string> = {
 
 
 const EMPTY_STATS = (): PerGameStats => ({ kills: 0, deaths: 0 });
+const EDIT_PASSWORD = "grugV4";
 
 
 const PLAYER_COLORS = ["#f59e0b","#34d399","#f87171","#a78bfa","#38bdf8","#fb923c","#e879f9","#4ade80","#f472b6","#60a5fa"];
@@ -36,16 +37,25 @@ const PLAYER_COLORS = ["#f59e0b","#34d399","#f87171","#a78bfa","#38bdf8","#fb923
 function EloChart({
   history, players,
 }: {
-  history: Record<string, Array<{ timestamp: number; elo: number }>>;
+  history: Record<string, EloHistoryPoint[]>;
   players: Record<string, { display_name: string }>;
 }) {
+  const [hidden, setHidden] = useState<Set<string>>(new Set());
+  const [hover, setHover] = useState<{ x: number; y: number; id: string; pt: EloHistoryPoint } | null>(null);
+
   const ids = Object.keys(history).filter(id => history[id].length > 0);
   if (ids.length === 0) return null;
+  const visibleIds = ids.filter(id => !hidden.has(id));
+
   const allPts = ids.flatMap(id => history[id]);
   const minT = Math.min(...allPts.map(p => p.timestamp));
   const maxT = Math.max(...allPts.map(p => p.timestamp));
-  const rawMin = Math.min(1000, ...allPts.map(p => p.elo));
-  const rawMax = Math.max(1000, ...allPts.map(p => p.elo));
+
+  // Y axis fits only the visible players, falling back to everyone if all are hidden.
+  const scaleIds = visibleIds.length > 0 ? visibleIds : ids;
+  const scalePts = scaleIds.flatMap(id => history[id]);
+  const rawMin = Math.min(1000, ...scalePts.map(p => p.elo));
+  const rawMax = Math.max(1000, ...scalePts.map(p => p.elo));
   const ePad = Math.max(15, Math.ceil((rawMax - rawMin) * 0.15));
   const minElo = rawMin - ePad, maxElo = rawMax + ePad;
   const W = 760, H = 180, PL = 44, PR = 92, PT = 10, PB = 18;
@@ -53,35 +63,110 @@ function EloChart({
   const xS = (t: number) => PL + (maxT === minT ? cw / 2 : ((t - minT) / (maxT - minT)) * cw);
   const yS = (e: number) => PT + ch - ((e - minElo) / (maxElo - minElo)) * ch;
   const ticks = Array.from({ length: 5 }, (_, i) => Math.round(minElo + (i / 4) * (maxElo - minElo)));
+
+  function toggle(id: string) {
+    setHidden(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+    setHover(null);
+  }
+
   return (
     <div>
-      <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ display: "block", overflow: "visible" }}>
-        {ticks.map(e => (
-          <g key={e}>
-            <line x1={PL} y1={yS(e)} x2={W - PR} y2={yS(e)}
-              stroke={e === 1000 ? "var(--border)" : "var(--surface2)"}
-              strokeWidth={e === 1000 ? 0.8 : 0.4}
-              strokeDasharray={e === 1000 ? "4 3" : undefined} />
-            <text x={PL - 4} y={yS(e) + 3.5} fill="var(--text-dim)" fontSize={8} textAnchor="end" fontFamily="Share Tech Mono">{e}</text>
-          </g>
-        ))}
-        {ids.map((id, ci) => {
-          const pts = history[id];
-          const color = PLAYER_COLORS[ci % PLAYER_COLORS.length];
-          const draw = [{ timestamp: minT, elo: 1000 }, ...pts];
-          const d = draw.map((p, i) => `${i === 0 ? "M" : "L"}${xS(p.timestamp).toFixed(1)},${yS(p.elo).toFixed(1)}`).join(" ");
-          const last = draw[draw.length - 1];
-          return (
-            <g key={id}>
-              <path d={d} fill="none" stroke={color} strokeWidth={1.5} strokeLinejoin="round" opacity={0.85} />
-              <circle cx={xS(last.timestamp)} cy={yS(last.elo)} r={3} fill={color} />
-              <text x={xS(last.timestamp) + 6} y={yS(last.elo) + 4} fill={color} fontSize={9} fontFamily="Share Tech Mono">
-                {(players[id]?.display_name ?? id).slice(0, 10)}
-              </text>
+      <div style={{ position: "relative" }}>
+        <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ display: "block", overflow: "visible" }}>
+          {ticks.map(e => (
+            <g key={e}>
+              <line x1={PL} y1={yS(e)} x2={W - PR} y2={yS(e)}
+                stroke={e === 1000 ? "var(--border)" : "var(--surface2)"}
+                strokeWidth={e === 1000 ? 0.8 : 0.4}
+                strokeDasharray={e === 1000 ? "4 3" : undefined} />
+              <text x={PL - 4} y={yS(e) + 3.5} fill="var(--text-dim)" fontSize={8} textAnchor="end" fontFamily="Share Tech Mono">{e}</text>
             </g>
+          ))}
+          {ids.map((id, ci) => {
+            if (hidden.has(id)) return null;
+            const pts = history[id];
+            const color = PLAYER_COLORS[ci % PLAYER_COLORS.length];
+            const draw = [{ timestamp: minT, elo: 1000 }, ...pts];
+            const d = draw.map((p, i) => `${i === 0 ? "M" : "L"}${xS(p.timestamp).toFixed(1)},${yS(p.elo).toFixed(1)}`).join(" ");
+            const last = draw[draw.length - 1];
+            return (
+              <g key={id}>
+                <path d={d} fill="none" stroke={color} strokeWidth={1.5} strokeLinejoin="round" opacity={0.85} />
+                {pts.map((p, pi) => (
+                  <circle
+                    key={pi}
+                    cx={xS(p.timestamp)} cy={yS(p.elo)} r={2.5}
+                    fill="var(--surface)" stroke={color} strokeWidth={1.5}
+                    style={{ cursor: "pointer" }}
+                    onMouseEnter={() => setHover({ x: xS(p.timestamp), y: yS(p.elo), id, pt: p })}
+                    onMouseLeave={() => setHover(null)}
+                  />
+                ))}
+                <circle cx={xS(last.timestamp)} cy={yS(last.elo)} r={3} fill={color} />
+                <text x={xS(last.timestamp) + 6} y={yS(last.elo) + 4} fill={color} fontSize={9} fontFamily="Share Tech Mono">
+                  {(players[id]?.display_name ?? id).slice(0, 10)}
+                </text>
+              </g>
+            );
+          })}
+        </svg>
+        {hover && (() => {
+          const opp = players[hover.pt.opponent_id]?.display_name ?? hover.pt.opponent_id;
+          const won = hover.pt.result === "W";
+          const score = hover.pt.score_for !== undefined && hover.pt.score_against !== undefined
+            ? `${hover.pt.score_for}-${hover.pt.score_against}` : null;
+          const color = PLAYER_COLORS[ids.indexOf(hover.id) % PLAYER_COLORS.length];
+          return (
+            <div style={{
+              position: "absolute",
+              left: `${(hover.x / W) * 100}%`, top: `${(hover.y / H) * 100}%`,
+              transform: "translate(-50%, calc(-100% - 10px))",
+              background: "color-mix(in srgb, var(--bg) 96%, var(--accent))",
+              border: "1px solid var(--border2)", borderRadius: 5,
+              padding: "6px 9px", fontSize: "0.74rem", fontFamily: "Share Tech Mono",
+              whiteSpace: "nowrap", pointerEvents: "none", zIndex: 50,
+              boxShadow: "0 6px 20px rgba(0, 0, 0, 0.45)",
+            }}>
+              <div style={{ color: "var(--text-bright)", marginBottom: 2 }}>
+                {(players[hover.id]?.display_name ?? hover.id)} vs {opp}
+              </div>
+              <div style={{ color: won ? "var(--win)" : "var(--lose)" }}>
+                {won ? "WIN" : "LOSS"}{score ? ` ${score}` : ""}
+                <span style={{ color: "var(--text-dim)" }}> · </span>
+                <span style={{ color }}>{hover.pt.delta >= 0 ? "+" : ""}{hover.pt.delta} ELO</span>
+              </div>
+            </div>
+          );
+        })()}
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 14px", marginTop: 8, paddingLeft: PL }}>
+        {ids.map((id, ci) => {
+          const color = PLAYER_COLORS[ci % PLAYER_COLORS.length];
+          const isHidden = hidden.has(id);
+          return (
+            <button
+              key={id}
+              onClick={() => toggle(id)}
+              title={isHidden ? "Click to show" : "Click to hide"}
+              style={{
+                display: "flex", alignItems: "center", gap: 5,
+                background: "none", border: "none", padding: "2px 0", cursor: "pointer",
+                fontFamily: "Share Tech Mono", fontSize: "0.74rem",
+                color: isHidden ? "var(--text-dim)" : color,
+                opacity: isHidden ? 0.5 : 1,
+                textDecoration: isHidden ? "line-through" : "none",
+              }}
+            >
+              <span style={{ width: 9, height: 9, borderRadius: "50%", background: color, opacity: isHidden ? 0.4 : 1, flexShrink: 0 }} />
+              {players[id]?.display_name ?? id}
+            </button>
           );
         })}
-      </svg>
+      </div>
     </div>
   );
 }
@@ -663,7 +748,7 @@ export default function Home() {
   const [error, setError] = useState("");
   const [elo, setElo] = useState<Record<string, number>>({});
   const [predAccuracy, setPredAccuracy] = useState<{ correct: number; total: number } | null>(null);
-  const [eloHistory, setEloHistory] = useState<Record<string, Array<{ timestamp: number; elo: number }>>>({});
+  const [eloHistory, setEloHistory] = useState<Record<string, EloHistoryPoint[]>>({});
   const [rankSort, setRankSort] = useState<RankSort>("sim");
   const [metaStability, setMetaStability] = useState<number | null>(null);
   const [selectedRivalry, setSelectedRivalry] = useState<string | null>(null);
@@ -727,6 +812,10 @@ export default function Home() {
   // History tab
   const [historyFilter, setHistoryFilter] = useState("");
   const [selectedPlayer, setSelectedPlayer] = useState<string | null>(null);
+  const [editAuthed, setEditAuthed] = useState(false);
+  const [editingGameId, setEditingGameId] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState({ scoreWinner: "", scoreLoser: "", wKills: "", wDeaths: "", lKills: "", lDeaths: "" });
+  const [editMsg, setEditMsg] = useState("");
 
   const refresh = useCallback(async () => {
     try {
@@ -858,6 +947,53 @@ export default function Home() {
     const s = await res.json();
     setState(s);
     computeRanking(s);
+  }
+
+  function startEditGame(g: Game) {
+    if (!editAuthed) {
+      const pw = window.prompt("Enter edit password:");
+      if (pw === null) return;
+      if (pw !== EDIT_PASSWORD) { setError("Incorrect password"); return; }
+      setEditAuthed(true);
+    }
+    setEditMsg("");
+    setEditingGameId(g.id);
+    setEditForm({
+      scoreWinner: g.score_winner !== undefined ? String(g.score_winner) : "",
+      scoreLoser:  g.score_loser  !== undefined ? String(g.score_loser)  : "",
+      wKills:  String(g.winner_stats.kills),
+      wDeaths: String(g.winner_stats.deaths),
+      lKills:  String(g.loser_stats.kills),
+      lDeaths: String(g.loser_stats.deaths),
+    });
+  }
+
+  async function saveGameEdit(id: string) {
+    const sw = editForm.scoreWinner.trim(), sl = editForm.scoreLoser.trim();
+    const body: Record<string, unknown> = {
+      winner_stats: { kills: parseInt(editForm.wKills) || 0, deaths: parseInt(editForm.wDeaths) || 0 },
+      loser_stats:  { kills: parseInt(editForm.lKills) || 0, deaths: parseInt(editForm.lDeaths) || 0 },
+    };
+    if (sw === "" && sl === "") {
+      body.score_winner = null;
+      body.score_loser = null;
+    } else {
+      const swN = parseInt(sw), slN = parseInt(sl);
+      if (isNaN(swN) || isNaN(slN) || swN <= slN) {
+        setEditMsg("Winner score must be a number greater than loser score (or leave both blank).");
+        return;
+      }
+      body.score_winner = swN;
+      body.score_loser = slN;
+    }
+    const res = await fetch(`/api/matches/${id}`, {
+      method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+    });
+    if (!res.ok) { const d = await res.json(); setEditMsg(d.error); return; }
+    const s = await res.json();
+    setState(s);
+    computeRanking(s);
+    setEditingGameId(null);
   }
 
   async function logGame(e: React.FormEvent) {
@@ -2069,6 +2205,11 @@ export default function Home() {
                     </div>
                     <div style={{ padding: "0 14px", textAlign: "center" }}>
                       <div className="font-mono" style={{ fontSize: "0.80rem", color: "var(--accent)" }}>DEF</div>
+                      {g.score_winner !== undefined && g.score_loser !== undefined && (
+                        <div className="font-mono" style={{ fontSize: "0.78rem", color: "var(--text-dim)", marginTop: 2 }}>
+                          {g.score_winner}–{g.score_loser}
+                        </div>
+                      )}
                       {upsetMap[g.id] && (
                         <div style={{ marginTop: 2 }}><span className="chip" style={{ color: "var(--neutral)" }} title="The model had the loser as the favorite going in">UPSET</span></div>
                       )}
@@ -2096,10 +2237,35 @@ export default function Home() {
                         KD {lKD} · {ls.deaths}D {ls.kills}K
                       </div>
                     </div>
+                    <button onClick={() => startEditGame(g)}
+                      style={{ marginLeft: 12, background: "none", border: "none", color: "var(--text-dim)", cursor: "pointer", fontSize: "0.92rem", lineHeight: 1, padding: "2px 4px" }}
+                      title="Edit game">✎</button>
                     <button onClick={() => handleDeleteGame(g.id)}
-                      style={{ marginLeft: 12, background: "none", border: "none", color: "var(--text-dim)", cursor: "pointer", fontSize: "1.0rem", lineHeight: 1, padding: "2px 4px" }}
+                      style={{ marginLeft: 2, background: "none", border: "none", color: "var(--text-dim)", cursor: "pointer", fontSize: "1.0rem", lineHeight: 1, padding: "2px 4px" }}
                       title="Delete game">✕</button>
                   </div>
+                  {editingGameId === g.id && (
+                    <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid var(--border)", display: "flex", flexWrap: "wrap", gap: 10, alignItems: "flex-end" }}>
+                      {[
+                        { label: "WINNER SCORE", key: "scoreWinner" as const, placeholder: "e.g. 7" },
+                        { label: "LOSER SCORE", key: "scoreLoser" as const, placeholder: "e.g. 3" },
+                        { label: "WINNER K", key: "wKills" as const, placeholder: "" },
+                        { label: "WINNER D", key: "wDeaths" as const, placeholder: "" },
+                        { label: "LOSER K", key: "lKills" as const, placeholder: "" },
+                        { label: "LOSER D", key: "lDeaths" as const, placeholder: "" },
+                      ].map(({ label, key, placeholder }) => (
+                        <div key={key}>
+                          <div style={{ fontSize: "0.74rem", color: "var(--text-dim)", fontFamily: "Share Tech Mono", letterSpacing: "0.08em", marginBottom: 2 }}>{label}</div>
+                          <input className="input" type="number" min="0" max="99" value={editForm[key]}
+                            onChange={e => setEditForm(f => ({ ...f, [key]: e.target.value }))}
+                            placeholder={placeholder} style={{ width: 64, padding: "4px 8px", fontSize: "0.88rem" }} />
+                        </div>
+                      ))}
+                      <button className="btn btn-primary" onClick={() => saveGameEdit(g.id)} style={{ padding: "5px 14px", fontSize: "0.8rem" }}>Save</button>
+                      <button className="btn" onClick={() => setEditingGameId(null)} style={{ padding: "5px 14px", fontSize: "0.8rem" }}>Cancel</button>
+                      {editMsg && <div style={{ color: "var(--lose)", fontSize: "0.78rem", flexBasis: "100%" }}>{editMsg}</div>}
+                    </div>
+                  )}
                 </div>
               );
             };
@@ -2539,7 +2705,7 @@ export default function Home() {
                 When the model says a favorite has a given win chance, they should win exactly that often.
                 Each pair of bars compares what happened (bright) to what was promised (dim) — matched heights mean honest probabilities.
               </div>
-              <div style={{ display: "flex", gap: 8, alignItems: "flex-end", height: 80 }}>
+              <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
                 {calibration.map((b, i) => {
                   const barH = Math.round(b.actual_rate * 100);
                   const predH = Math.round(b.predicted_mid * 100);
