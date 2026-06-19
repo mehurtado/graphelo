@@ -2583,7 +2583,8 @@ export default function Home() {
                       { label: "Katz centrality Δ", w: unifiedEngine.status.ensembleWeights[1] },
                       { label: "Ordinal BT log-odds", w: unifiedEngine.status.ensembleWeights[2] },
                       { label: "BT reliability gap", w: unifiedEngine.status.ensembleWeights[3] },
-                      { label: "Intercept", w: unifiedEngine.status.ensembleWeights[4] },
+                      { label: "H2H log-odds", w: unifiedEngine.status.ensembleWeights[4] },
+                      { label: "Intercept", w: unifiedEngine.status.ensembleWeights[5] },
                     ].map(({ label, w }) => {
                       const barW = Math.min(100, Math.abs(w) / 1.5 * 100);
                       return (

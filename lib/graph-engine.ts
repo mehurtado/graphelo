@@ -1752,8 +1752,8 @@ export function fitOrdinalBT(state: GraphState, nowMs = Date.now()): OrdinalBTFi
 // blending ELO / Katz / ordinal BT signals. Features use log-odds (logit) for
 // probability inputs so equal default weights produce a correctly-centred prior.
 
-const ENSEMBLE_N_FEATURES = 5;
-const ENSEMBLE_DEFAULT_WEIGHTS = [0.5, 0.2, 0.5, 0.1, 0.0]; // ELO logit, Katz z, BT logit, BT reliability z, intercept
+const ENSEMBLE_N_FEATURES = 6;
+const ENSEMBLE_DEFAULT_WEIGHTS = [0.5, 0.2, 0.5, 0.1, 0.3, 0.0]; // ELO logit, Katz z, BT logit, BT reliability z, H2H logit, intercept
 const ENSEMBLE_MIN_LOO = 4;
 
 export interface UnifiedEngineStatus {
@@ -1791,6 +1791,7 @@ function engineFeatures(
   katzR: KatzResult,
   katzStd: number,
   obt: OrdinalBTFit | null,
+  h2hGames: Game[],   // games between aId and bId from the training set
 ): number[] {
   const eloA = eloMap[aId] ?? ELO_START, eloB = eloMap[bId] ?? ELO_START;
   const eloP = 1 / (1 + Math.pow(10, (eloB - eloA) / 400));
@@ -1812,7 +1813,13 @@ function engineFeatures(
     btRel = (bA - bB) / Math.sqrt(sA * sA + sB * sB + 1e-6);
   }
 
-  return [logitClamp(eloP), katzZ, btLogit, btRel, 1.0];
+  // H2H observed win rate, Jeffreys-smoothed (adds 0.5 pseudo-counts per side).
+  // Zero when no H2H games — contributes nothing to the prior.
+  const h2hN = h2hGames.length;
+  const h2hAWins = h2hGames.filter(g => g.winner_id === aId).length;
+  const h2hLogit = h2hN > 0 ? logitClamp((h2hAWins + 0.5) / (h2hN + 1)) : 0;
+
+  return [logitClamp(eloP), katzZ, btLogit, btRel, h2hLogit, 1.0];
 }
 
 function fitEnsembleWeights(examples: Array<{ x: number[]; y: number }>): number[] {
@@ -1842,7 +1849,7 @@ function ensembleBrier(examples: Array<{ x: number[]; y: number }>, w: number[])
 }
 
 function weightsSane(w: number[]): boolean {
-  return w[0] >= -0.5 && w[2] >= -0.5 && Math.abs(w[4]) <= 2.0;
+  return w[0] >= -0.5 && w[2] >= -0.5 && w[4] >= -0.5 && Math.abs(w[5]) <= 2.0;
 }
 
 export function buildUnifiedEngine(state: GraphState, nowMs = Date.now()): UnifiedEngine {
@@ -1869,7 +1876,11 @@ export function buildUnifiedEngine(state: GraphState, nowMs = Date.now()): Unifi
       const lc = katzCentrality(lKatz.K, lKatz.ids.length);
       const lMean = lc.reduce((a, b) => a + b, 0) / Math.max(1, lKatz.ids.length);
       const lStd  = Math.sqrt(lc.reduce((s, v) => s + (v - lMean) ** 2, 0) / Math.max(1, lKatz.ids.length)) || 1;
-      looEx.push({ x: engineFeatures(g.winner_id, g.loser_id, lElo, lKatz, lStd, lObt), y: 1 });
+      const lH2H = ts.games.filter(tg =>
+        (tg.winner_id === g.winner_id && tg.loser_id === g.loser_id) ||
+        (tg.winner_id === g.loser_id && tg.loser_id === g.winner_id)
+      );
+      looEx.push({ x: engineFeatures(g.winner_id, g.loser_id, lElo, lKatz, lStd, lObt, lH2H), y: 1 });
     }
   }
 
@@ -1893,7 +1904,11 @@ export function buildUnifiedEngine(state: GraphState, nowMs = Date.now()): Unifi
       (g.winner_id === bId && g.loser_id === aId)
     ).length;
     const base = katzPredict(katz, aId, bId, directGames);
-    const x = engineFeatures(aId, bId, eloMap, katz, katzStd, obt);
+    const h2hGames = state.games.filter(g =>
+      (g.winner_id === aId && g.loser_id === bId) ||
+      (g.winner_id === bId && g.loser_id === aId)
+    );
+    const x = engineFeatures(aId, bId, eloMap, katz, katzStd, obt, h2hGames);
     const p = Math.max(0.02, Math.min(0.98, ensembleSig(ensembleDot(weights, x))));
     return { ...base, p_a_wins: p };
   }
