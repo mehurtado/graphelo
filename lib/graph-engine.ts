@@ -161,6 +161,10 @@ export interface SkillGapTrend {
 const TAU_DAYS = 90;
 const SIM_ROUNDS = 1000;
 const BETA = 0.5;
+export const ELO_START = 800;
+const K_STABLE = 32;
+const K_PROVISIONAL = 64;
+const PROVISIONAL_GAMES = 5;
 
 // Weight given to championship % (peak performance) vs. average pairwise win
 // probability (consistent dominance) in SIM SCORE. 0 = pure pairwise dominance,
@@ -527,12 +531,12 @@ export function simulationScore(
   return alpha * champNorm + (1 - alpha) * avgPairwiseWinProb;
 }
 
-export function simulateRoundRobin(state: GraphState): SimulationResult {
+export function simulateRoundRobin(state: GraphState, engine?: UnifiedEngine): SimulationResult {
   const players = Object.values(state.players);
   if (players.length === 0) return { ranking: [], h2h_sim: {}, champ_counts: {} };
   const n = players.length;
 
-  // Build Katz matrix once for all pairs
+  // Build Katz matrix for fallback predictions when no engine is provided
   const katz = buildKatzMatrix(state);
 
   const statVecs: Record<string, StatVector> = {};
@@ -545,7 +549,9 @@ export function simulateRoundRobin(state: GraphState): SimulationResult {
     matchupTable[a.id] = {};
     for (const b of players) {
       if (a.id === b.id) continue;
-      const { p_a_wins } = katzPredict(katz, a.id, b.id, 0);
+      const p_a_wins = engine
+        ? engine.predict(a.id, b.id).p_a_wins
+        : katzPredict(katz, a.id, b.id, 0).p_a_wins;
       pMatrix[a.id][b.id] = p_a_wins;
       matchupTable[a.id][b.id] = p_a_wins;
     }
@@ -623,14 +629,18 @@ export function simulateRoundRobin(state: GraphState): SimulationResult {
 // ─── ELO ─────────────────────────────────────────────────────────────────────
 
 export function computeElo(state: GraphState): Record<string, number> {
-  const K = 32;
   const elo: Record<string, number> = {};
-  for (const id of Object.keys(state.players)) elo[id] = 1000;
+  const gc: Record<string, number> = {};
+  for (const id of Object.keys(state.players)) { elo[id] = ELO_START; gc[id] = 0; }
   for (const g of [...state.games].sort((a, b) => a.timestamp - b.timestamp)) {
-    const ra = elo[g.winner_id] ?? 1000, rb = elo[g.loser_id] ?? 1000;
+    const ra = elo[g.winner_id] ?? ELO_START, rb = elo[g.loser_id] ?? ELO_START;
+    const kW = (gc[g.winner_id] ?? 0) < PROVISIONAL_GAMES ? K_PROVISIONAL : K_STABLE;
+    const kL = (gc[g.loser_id]  ?? 0) < PROVISIONAL_GAMES ? K_PROVISIONAL : K_STABLE;
     const ea = 1 / (1 + Math.pow(10, (rb - ra) / 400));
-    elo[g.winner_id] = Math.round(ra + K * (1 - ea));
-    elo[g.loser_id]  = Math.round(rb + K * (0 - (1 - ea)));
+    elo[g.winner_id] = Math.round(ra + kW * (1 - ea));
+    elo[g.loser_id]  = Math.round(rb + kL * (0 - (1 - ea)));
+    gc[g.winner_id] = (gc[g.winner_id] ?? 0) + 1;
+    gc[g.loser_id]  = (gc[g.loser_id]  ?? 0) + 1;
   }
   return elo;
 }
@@ -646,15 +656,19 @@ export interface EloHistoryPoint {
 }
 
 export function computeEloHistory(state: GraphState): Record<string, EloHistoryPoint[]> {
-  const K = 32;
   const current: Record<string, number> = {};
+  const gc: Record<string, number> = {};
   const history: Record<string, EloHistoryPoint[]> = {};
-  for (const id of Object.keys(state.players)) { current[id] = 1000; history[id] = []; }
+  for (const id of Object.keys(state.players)) { current[id] = ELO_START; gc[id] = 0; history[id] = []; }
   for (const g of [...state.games].sort((a, b) => a.timestamp - b.timestamp)) {
-    const ra = current[g.winner_id] ?? 1000, rb = current[g.loser_id] ?? 1000;
+    const ra = current[g.winner_id] ?? ELO_START, rb = current[g.loser_id] ?? ELO_START;
+    const kW = (gc[g.winner_id] ?? 0) < PROVISIONAL_GAMES ? K_PROVISIONAL : K_STABLE;
+    const kL = (gc[g.loser_id]  ?? 0) < PROVISIONAL_GAMES ? K_PROVISIONAL : K_STABLE;
     const ea = 1 / (1 + Math.pow(10, (rb - ra) / 400));
-    current[g.winner_id] = Math.round(ra + K * (1 - ea));
-    current[g.loser_id]  = Math.round(rb + K * (0 - (1 - ea)));
+    current[g.winner_id] = Math.round(ra + kW * (1 - ea));
+    current[g.loser_id]  = Math.round(rb + kL * (0 - (1 - ea)));
+    gc[g.winner_id] = (gc[g.winner_id] ?? 0) + 1;
+    gc[g.loser_id]  = (gc[g.loser_id]  ?? 0) + 1;
     if (history[g.winner_id]) history[g.winner_id].push({
       timestamp: g.timestamp, elo: current[g.winner_id], opponent_id: g.loser_id, result: "W",
       score_for: g.score_winner, score_against: g.score_loser, delta: current[g.winner_id] - ra,
@@ -995,7 +1009,7 @@ export function computeFormRating(state: GraphState, window = 5): Record<string,
       .sort((a, b) => a.timestamp - b.timestamp)
       .slice(-window);
 
-    if (myGames.length === 0) { result[id] = 1000; continue; }
+    if (myGames.length === 0) { result[id] = ELO_START; continue; }
 
     // Build mini-state with only the players in those games
     const miniPlayers: Record<string, { id: string; display_name: string; created_at: number }> = {};
@@ -1004,7 +1018,7 @@ export function computeFormRating(state: GraphState, window = 5): Record<string,
       if (state.players[g.loser_id])  miniPlayers[g.loser_id]  = state.players[g.loser_id];
     }
     const miniElo = computeElo({ players: miniPlayers, games: myGames });
-    result[id] = miniElo[id] ?? 1000;
+    result[id] = miniElo[id] ?? ELO_START;
   }
   return result;
 }
@@ -1089,7 +1103,7 @@ export function computeRematchUrgency(
 
   const lastGame = h2hGames[h2hGames.length - 1];
   const eloAtLast = computeElo({ players: state.players, games: state.games.filter(g => g.timestamp <= lastGame.timestamp) });
-  const rA = eloAtLast[aId] ?? 1000, rB = eloAtLast[bId] ?? 1000;
+  const rA = eloAtLast[aId] ?? ELO_START, rB = eloAtLast[bId] ?? ELO_START;
   const predictedThen = 1 / (1 + Math.pow(10, (rB - rA) / 400));
 
   const { p_a_wins: predictedNow } = predictPairwise(state, aId, bId);
@@ -1596,5 +1610,305 @@ export function computeUpsetAlert(
     form_win_prob,
     divergence: Math.round(divergence * 100) / 100,
     alert_level: divergence > 0.25 ? "HIGH" : "MODERATE",
+  };
+}
+
+// ─── Ordinal Bradley-Terry (margin-aware) ─────────────────────────────────────
+// Models the round differential d = score_A - score_B as an ordinal variable
+// under a logistic CDF with 13 derived cutpoints. Thresholds are computed
+// analytically from the first-to-7 negative-binomial PMF (no free threshold
+// params). Only fitted parameters: β per player (zero-mean skill) + log σ (scale).
+
+const ORDINAL_DIFFS = [-7,-6,-5,-4,-3,-2,-1,1,2,3,4,5,6,7] as const;
+
+export interface OrdinalBTFit {
+  beta: Record<string, number>;  // zero-mean log-skill
+  sigma: number;                 // scale (fitted)
+  cutpoints: number[];           // 13 logit-scale cutpoints
+  se: Record<string, number>;    // per-player SE from diagonal Hessian
+  ids: string[];
+}
+
+function logisticFn(x: number): number { return 1 / (1 + Math.exp(-x)); }
+
+function deriveOrdinalCutpoints(): number[] {
+  let cumP = 0;
+  return (ORDINAL_DIFFS.slice(0, -1) as number[]).map(d => {
+    const prob = d < 0
+      ? scorelineProbability(MATCH_TARGET + d, MATCH_TARGET, 0.5)
+      : scorelineProbability(MATCH_TARGET, MATCH_TARGET - d, 0.5);
+    cumP += prob;
+    const p = Math.max(1e-9, Math.min(1 - 1e-9, cumP));
+    return Math.log(p / (1 - p));
+  });
+}
+
+function ordinalBTPointLik(d: number, loc: number, sigma: number, cutpoints: number[]): number {
+  const k = (ORDINAL_DIFFS as readonly number[]).indexOf(d);
+  if (k < 0) return 1e-10;
+  const invS = 1 / sigma;
+  const upper = k < cutpoints.length ? logisticFn((cutpoints[k] - loc) * invS) : 1.0;
+  const lower = k > 0 ? logisticFn((cutpoints[k - 1] - loc) * invS) : 0.0;
+  return Math.max(1e-10, upper - lower);
+}
+
+export function ordinalBTWinProb(betaA: number, betaB: number, sigma: number, cutpoints: number[]): number {
+  const loc = betaA - betaB;
+  let p = 0;
+  for (const d of [1,2,3,4,5,6,7]) p += ordinalBTPointLik(d, loc, sigma, cutpoints);
+  return p;
+}
+
+export function ordinalBTPredictedMargin(betaA: number, betaB: number, sigma: number, cutpoints: number[]): number {
+  const loc = betaA - betaB;
+  return (ORDINAL_DIFFS as readonly number[]).reduce(
+    (exp, d) => exp + d * ordinalBTPointLik(d, loc, sigma, cutpoints), 0
+  );
+}
+
+export function fitOrdinalBT(state: GraphState, nowMs = Date.now()): OrdinalBTFit | null {
+  const ids = Object.keys(state.players);
+  const n = ids.length;
+  if (n < 2) return null;
+
+  const scored = state.games
+    .filter(g => g.score_winner !== undefined && g.score_loser !== undefined)
+    .sort((a, b) => a.timestamp - b.timestamp);
+  if (scored.length < 2) return null;
+
+  const idx: Record<string, number> = {};
+  ids.forEach((id, i) => { idx[id] = i; });
+
+  const cutpoints = deriveOrdinalCutpoints();
+  const recency = scored.map(g => Math.exp(-(nowMs - g.timestamp) / (TAU_DAYS * 86_400_000)));
+
+  const gc: Record<string, number> = {};
+  for (const id of ids) gc[id] = 0;
+  for (const g of scored) {
+    gc[g.winner_id] = (gc[g.winner_id] ?? 0) + 1;
+    gc[g.loser_id]  = (gc[g.loser_id]  ?? 0) + 1;
+  }
+
+  // params: [beta_0..beta_{n-1}, log_sigma]
+  const params = new Array(n + 1).fill(0);
+
+  function objective(p: number[]): number {
+    const raw = p.slice(0, n);
+    const mean = raw.reduce((a, b) => a + b, 0) / n;
+    const betas = raw.map(b => b - mean);
+    const sigma = Math.exp(Math.max(-3, Math.min(3, p[n])));
+    let ll = 0;
+    for (let gi = 0; gi < scored.length; gi++) {
+      const g = scored[gi];
+      const wi = idx[g.winner_id], li = idx[g.loser_id];
+      if (wi === undefined || li === undefined) continue;
+      const d = g.score_winner! - g.score_loser!;
+      if (d <= 0) continue;
+      ll += recency[gi] * Math.log(ordinalBTPointLik(d, betas[wi] - betas[li], sigma, cutpoints));
+    }
+    for (let i = 0; i < n; i++) {
+      const lambda = 0.5 * Math.exp(-(gc[ids[i]] ?? 0) / 4);
+      ll -= lambda * betas[i] * betas[i] / 2;
+    }
+    return ll;
+  }
+
+  const h = 1e-5, lr = 0.08, MAX_ITER = 600, TOL = 1e-7;
+  for (let iter = 0; iter < MAX_ITER; iter++) {
+    const grad = new Array(n + 1).fill(0);
+    for (let k = 0; k <= n; k++) {
+      params[k] += h; const up = objective(params);
+      params[k] -= 2 * h; const dn = objective(params);
+      params[k] += h;
+      grad[k] = (up - dn) / (2 * h);
+    }
+    let stepNorm = 0;
+    for (let k = 0; k <= n; k++) { params[k] += lr * grad[k]; stepNorm += grad[k] * grad[k]; }
+    if (Math.sqrt(stepNorm) * lr < TOL) break;
+  }
+
+  const rawBetas = params.slice(0, n);
+  const finalMean = rawBetas.reduce((a, b) => a + b, 0) / n;
+  const finalBetas = rawBetas.map(b => b - finalMean);
+  const sigma = Math.exp(Math.max(-3, Math.min(3, params[n])));
+
+  const h2 = 1e-4, f0 = objective(params);
+  const beta: Record<string, number> = {};
+  const se: Record<string, number> = {};
+  for (let i = 0; i < n; i++) {
+    beta[ids[i]] = finalBetas[i];
+    params[i] += h2; const up = objective(params);
+    params[i] -= 2 * h2; const dn = objective(params);
+    params[i] += h2;
+    const hii = (up - 2 * f0 + dn) / (h2 * h2);
+    se[ids[i]] = hii < -1e-9 ? Math.sqrt(1 / (-hii)) : 1.0;
+  }
+
+  return { beta, sigma, cutpoints, se, ids };
+}
+
+// ─── Unified Prediction Engine ────────────────────────────────────────────────
+// Two-layer ensemble: ordinal BT (margin-aware) + LOO-fit logistic regression
+// blending ELO / Katz / ordinal BT signals. Features use log-odds (logit) for
+// probability inputs so equal default weights produce a correctly-centred prior.
+
+const ENSEMBLE_N_FEATURES = 5;
+const ENSEMBLE_DEFAULT_WEIGHTS = [0.5, 0.2, 0.5, 0.1, 0.0]; // ELO logit, Katz z, BT logit, BT reliability z, intercept
+const ENSEMBLE_MIN_LOO = 4;
+
+export interface UnifiedEngineStatus {
+  ensembleWeights: number[];
+  ensembleMode: "FITTED" | "DEFAULTED" | "TOO_FEW_GAMES";
+  looN: number;
+  looBrierFitted: number | null;
+  looBrierDefault: number | null;
+  ordinalBTFitted: boolean;
+  sigma: number | null;
+}
+
+export interface UnifiedEngine {
+  predict: (aId: string, bId: string) => PairwisePrediction;
+  ordinalBT: OrdinalBTFit | null;
+  status: UnifiedEngineStatus;
+}
+
+function ensembleSig(x: number): number { return 1 / (1 + Math.exp(-x)); }
+function ensembleDot(a: number[], b: number[]): number { return a.reduce((s, v, i) => s + v * b[i], 0); }
+function logitClamp(p: number): number {
+  const pc = Math.max(0.02, Math.min(0.98, p));
+  return Math.log(pc / (1 - pc));
+}
+
+function katzCentrality(K: number[][], n: number): number[] {
+  return Array.from({ length: n }, (_, i) =>
+    K[i].reduce((s, v, j) => (i === j ? s : s + Math.max(0, v)), 0)
+  );
+}
+
+function engineFeatures(
+  aId: string, bId: string,
+  eloMap: Record<string, number>,
+  katzR: KatzResult,
+  katzStd: number,
+  obt: OrdinalBTFit | null,
+): number[] {
+  const eloA = eloMap[aId] ?? ELO_START, eloB = eloMap[bId] ?? ELO_START;
+  const eloP = 1 / (1 + Math.pow(10, (eloB - eloA) / 400));
+
+  const { idx, K } = katzR;
+  const nk = katzR.ids.length;
+  const cent = katzCentrality(K, nk);
+  const ai = idx[aId] ?? -1, bi = idx[bId] ?? -1;
+  const katzZ = katzStd > 1e-9
+    ? ((ai >= 0 ? cent[ai] : 0) - (bi >= 0 ? cent[bi] : 0)) / katzStd
+    : 0;
+
+  let btLogit = logitClamp(eloP);
+  let btRel = 0;
+  if (obt && obt.beta[aId] !== undefined && obt.beta[bId] !== undefined) {
+    const bA = obt.beta[aId], bB = obt.beta[bId];
+    const sA = obt.se[aId] ?? 1.0, sB = obt.se[bId] ?? 1.0;
+    btLogit = logitClamp(ordinalBTWinProb(bA, bB, obt.sigma, obt.cutpoints));
+    btRel = (bA - bB) / Math.sqrt(sA * sA + sB * sB + 1e-6);
+  }
+
+  return [logitClamp(eloP), katzZ, btLogit, btRel, 1.0];
+}
+
+function fitEnsembleWeights(examples: Array<{ x: number[]; y: number }>): number[] {
+  let w = ENSEMBLE_DEFAULT_WEIGHTS.slice();
+  const lr = 0.05, l2 = 1.0, MAX_ITER = 1000, TOL = 1e-8;
+  for (let iter = 0; iter < MAX_ITER; iter++) {
+    const grad = new Array(ENSEMBLE_N_FEATURES).fill(0);
+    for (const { x, y } of examples) {
+      const r = ensembleSig(ensembleDot(w, x)) - y;
+      for (let j = 0; j < ENSEMBLE_N_FEATURES; j++) grad[j] += r * x[j];
+    }
+    for (let j = 0; j < ENSEMBLE_N_FEATURES - 1; j++) grad[j] += l2 * w[j];
+    let maxChange = 0;
+    for (let j = 0; j < ENSEMBLE_N_FEATURES; j++) {
+      const step = lr * grad[j] / examples.length;
+      w[j] -= step;
+      maxChange = Math.max(maxChange, Math.abs(step));
+    }
+    if (maxChange < TOL) break;
+  }
+  return w;
+}
+
+function ensembleBrier(examples: Array<{ x: number[]; y: number }>, w: number[]): number {
+  if (examples.length === 0) return 0.25;
+  return examples.reduce((s, { x, y }) => s + (ensembleSig(ensembleDot(w, x)) - y) ** 2, 0) / examples.length;
+}
+
+function weightsSane(w: number[]): boolean {
+  return w[0] >= -0.5 && w[2] >= -0.5 && Math.abs(w[4]) <= 2.0;
+}
+
+export function buildUnifiedEngine(state: GraphState, nowMs = Date.now()): UnifiedEngine {
+  const eloMap = computeElo(state);
+  const katz = buildKatzMatrix(state);
+  const obt = fitOrdinalBT(state, nowMs);
+
+  const nk = katz.ids.length;
+  const cent = katzCentrality(katz.K, nk);
+  const kMean = cent.reduce((a, b) => a + b, 0) / Math.max(1, nk);
+  const katzStd = Math.sqrt(cent.reduce((s, v) => s + (v - kMean) ** 2, 0) / Math.max(1, nk)) || 1;
+
+  const sorted = [...state.games].sort((a, b) => a.timestamp - b.timestamp);
+  const looEx: Array<{ x: number[]; y: number }> = [];
+
+  if (sorted.length >= ENSEMBLE_MIN_LOO) {
+    for (let k = 0; k < sorted.length; k++) {
+      const g = sorted[k];
+      if (!state.players[g.winner_id] || !state.players[g.loser_id]) continue;
+      const ts: GraphState = { players: state.players, games: sorted.filter((_, i) => i !== k) };
+      const lElo  = computeElo(ts);
+      const lKatz = buildKatzMatrix(ts);
+      const lObt  = fitOrdinalBT(ts, nowMs);
+      const lc = katzCentrality(lKatz.K, lKatz.ids.length);
+      const lMean = lc.reduce((a, b) => a + b, 0) / Math.max(1, lKatz.ids.length);
+      const lStd  = Math.sqrt(lc.reduce((s, v) => s + (v - lMean) ** 2, 0) / Math.max(1, lKatz.ids.length)) || 1;
+      looEx.push({ x: engineFeatures(g.winner_id, g.loser_id, lElo, lKatz, lStd, lObt), y: 1 });
+    }
+  }
+
+  let weights = ENSEMBLE_DEFAULT_WEIGHTS.slice();
+  let mode: "FITTED" | "DEFAULTED" | "TOO_FEW_GAMES" = "TOO_FEW_GAMES";
+  let brierFitted: number | null = null, brierDefault: number | null = null;
+
+  if (looEx.length >= ENSEMBLE_MIN_LOO) {
+    const fitted = fitEnsembleWeights(looEx);
+    const bF = ensembleBrier(looEx, fitted);
+    const bD = ensembleBrier(looEx, ENSEMBLE_DEFAULT_WEIGHTS);
+    brierFitted  = Math.round(bF * 1000) / 1000;
+    brierDefault = Math.round(bD * 1000) / 1000;
+    if (bF < bD - 0.005 && weightsSane(fitted)) { weights = fitted; mode = "FITTED"; }
+    else { mode = "DEFAULTED"; }
+  }
+
+  function predict(aId: string, bId: string): PairwisePrediction {
+    const directGames = state.games.filter(g =>
+      (g.winner_id === aId && g.loser_id === bId) ||
+      (g.winner_id === bId && g.loser_id === aId)
+    ).length;
+    const base = katzPredict(katz, aId, bId, directGames);
+    const x = engineFeatures(aId, bId, eloMap, katz, katzStd, obt);
+    const p = Math.max(0.02, Math.min(0.98, ensembleSig(ensembleDot(weights, x))));
+    return { ...base, p_a_wins: p };
+  }
+
+  return {
+    predict,
+    ordinalBT: obt,
+    status: {
+      ensembleWeights: weights,
+      ensembleMode: mode,
+      looN: looEx.length,
+      looBrierFitted: brierFitted,
+      looBrierDefault: brierDefault,
+      ordinalBTFitted: obt !== null,
+      sigma: obt?.sigma ?? null,
+    },
   };
 }

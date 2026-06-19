@@ -1,7 +1,8 @@
 ﻿"use client";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import type { GraphState, Game, RankEntry, PairwisePrediction, PerGameStats, H2hSim, BTResult, CycleAnalysis, LooCvResult, SkillGapTrend, DominancePath, ExtendedPlayerStats, DominanceDuration, InfoGainEntry, KingmakerEntry, CalibrationBucket, PermutationTestResult, EloHistoryPoint } from "@/lib/graph-engine";
-import { simulateRoundRobin, predictPairwise, computeElo, computePredictionAccuracy, computeEloHistory, computeMetaStability, computeReliability, computeEloVelocity, computeBradleyTerry, computeCycles, computeCeilingEstimate, computeNemesisProfile, computeParityIndex, computeFormRating, computeLooCvBrier, computeSkillGapTrend, computeRematchUrgency, computeUpsetAlert, kendallTauAgreement, computeExtendedPlayerStats, computeDominanceDuration, computeInformationGain, computeRetroactiveImpact, computeKingmaker, computeCalibrationCurve, computePermutationTest, SIMULATION_SCORE_ALPHA, roundWinRateFromMatchProb } from "@/lib/graph-engine";
+import { simulateRoundRobin, predictPairwise, computeElo, computePredictionAccuracy, computeEloHistory, computeMetaStability, computeReliability, computeEloVelocity, computeBradleyTerry, computeCycles, computeCeilingEstimate, computeNemesisProfile, computeParityIndex, computeFormRating, computeLooCvBrier, computeSkillGapTrend, computeRematchUrgency, computeUpsetAlert, kendallTauAgreement, computeExtendedPlayerStats, computeDominanceDuration, computeInformationGain, computeRetroactiveImpact, computeKingmaker, computeCalibrationCurve, computePermutationTest, SIMULATION_SCORE_ALPHA, roundWinRateFromMatchProb, ELO_START, buildUnifiedEngine, ordinalBTPredictedMargin } from "@/lib/graph-engine";
+import type { UnifiedEngine } from "@/lib/graph-engine";
 
 type Tab = "ranking" | "log" | "matchup" | "history" | "players" | "system";
 type RankSort = "sim" | "champ" | "winprob" | "placement" | "elo";
@@ -54,8 +55,8 @@ function EloChart({
   // Y axis fits only the visible players, falling back to everyone if all are hidden.
   const scaleIds = visibleIds.length > 0 ? visibleIds : ids;
   const scalePts = scaleIds.flatMap(id => history[id]);
-  const rawMin = Math.min(1000, ...scalePts.map(p => p.elo));
-  const rawMax = Math.max(1000, ...scalePts.map(p => p.elo));
+  const rawMin = Math.min(ELO_START, ...scalePts.map(p => p.elo));
+  const rawMax = Math.max(ELO_START, ...scalePts.map(p => p.elo));
   const ePad = Math.max(15, Math.ceil((rawMax - rawMin) * 0.15));
   const minElo = rawMin - ePad, maxElo = rawMax + ePad;
   const W = 760, H = 180, PL = 44, PR = 92, PT = 10, PB = 18;
@@ -90,7 +91,7 @@ function EloChart({
             if (hidden.has(id)) return null;
             const pts = history[id];
             const color = PLAYER_COLORS[ci % PLAYER_COLORS.length];
-            const draw = [{ timestamp: minT, elo: 1000 }, ...pts];
+            const draw = [{ timestamp: minT, elo: ELO_START }, ...pts];
             const d = draw.map((p, i) => `${i === 0 ? "M" : "L"}${xS(p.timestamp).toFixed(1)},${yS(p.elo).toFixed(1)}`).join(" ");
             const last = draw[draw.length - 1];
             return (
@@ -816,6 +817,7 @@ export default function Home() {
   const [editingGameId, setEditingGameId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState({ scoreWinner: "", scoreLoser: "", wKills: "", wDeaths: "", lKills: "", lDeaths: "" });
   const [editMsg, setEditMsg] = useState("");
+  const [unifiedEngine, setUnifiedEngine] = useState<UnifiedEngine | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -830,7 +832,9 @@ export default function Home() {
 
   const computeRanking = useCallback((s: GraphState) => {
     try {
-      const result = simulateRoundRobin(s);
+      const eng = buildUnifiedEngine(s);
+      setUnifiedEngine(eng);
+      const result = simulateRoundRobin(s, eng);
       setRanking(result.ranking);
       setH2hSim(result.h2h_sim);
       setChampCounts(result.champ_counts);
@@ -883,6 +887,11 @@ export default function Home() {
       .sort((x, y) => y.total - x.total || Math.abs(x.aWins - x.bWins) - Math.abs(y.aWins - y.bWins))
       .slice(0, 5);
   }, [state]);
+
+  // Use the pre-built engine for current-state predictions; fall back to Katz-only for historical sub-states.
+  function localPredict(aId: string, bId: string) {
+    return unifiedEngine ? unifiedEngine.predict(aId, bId) : predictPairwise(state, aId, bId);
+  }
 
   const upsetMap = useMemo(() => {
     const sorted = [...state.games].sort((a, b) => a.timestamp - b.timestamp);
@@ -1023,7 +1032,7 @@ export default function Home() {
 
   function getPrediction() {
     if (!predA || !predB || predA === predB) return;
-    setPrediction(predictPairwise(state, predA, predB));
+    setPrediction(localPredict(predA, predB));
   }
 
   function pct(n: number, dec = 0) {
@@ -1190,7 +1199,7 @@ export default function Home() {
                             {favored} {(favProb * 100).toFixed(1)}%
                           </span>
                           <button className="btn" style={{ padding: "1px 7px", fontSize: "0.74rem", flexShrink: 0 }}
-                            onClick={() => { setPredA(ig.a); setPredB(ig.b); setPrediction(predictPairwise(state, ig.a, ig.b)); setTab("matchup"); }}>
+                            onClick={() => { setPredA(ig.a); setPredB(ig.b); setPrediction(localPredict(ig.a, ig.b)); setTab("matchup"); }}>
                             →
                           </button>
                         </div>
@@ -1210,7 +1219,7 @@ export default function Home() {
                     <span className="player-name" style={{ fontSize: "1.0rem" }}>{mostInteresting.b.display_name}</span>
                   </div>
                   <button className="btn" style={{ padding: "3px 10px", fontSize: "0.74rem", alignSelf: "flex-start" }}
-                    onClick={() => { setPredA(mostInteresting!.a.player_id); setPredB(mostInteresting!.b.player_id); setPrediction(predictPairwise(state, mostInteresting!.a.player_id, mostInteresting!.b.player_id)); setTab("matchup"); }}>
+                    onClick={() => { setPredA(mostInteresting!.a.player_id); setPredB(mostInteresting!.b.player_id); setPrediction(localPredict(mostInteresting!.a.player_id, mostInteresting!.b.player_id)); setTab("matchup"); }}>
                     ANALYZE →
                   </button>
                 </div>
@@ -1363,7 +1372,7 @@ export default function Home() {
                     {isSelected && (() => {
                       const opponents = players.filter(p => p.id !== r.player_id);
                       const rows = opponents.map(opp => {
-                        const pred = predictPairwise(state, r.player_id, opp.id);
+                        const pred = localPredict(r.player_id, opp.id);
                         const wins = state.games.filter(g => g.winner_id === r.player_id && g.loser_id === opp.id).length;
                         const losses = state.games.filter(g => g.loser_id === r.player_id && g.winner_id === opp.id).length;
                         return { opp, pred, wins, losses };
@@ -1833,7 +1842,7 @@ export default function Home() {
                 {players
                   .filter(p => p.id !== predA)
                   .map(p => {
-                    const pred = predictPairwise(state, predA, p.id);
+                    const pred = localPredict(predA, p.id);
                     const diff = Math.abs(pred.p_a_wins - 0.5);
                     const eloMap = elo;
                     const rA = eloMap[predA] ?? 1000, rB = eloMap[p.id] ?? 1000;
@@ -1937,8 +1946,17 @@ export default function Home() {
 
                   {/* Predicted score */}
                   {state.games.length >= 2 && (() => {
-                    const { aKills, bKills } = predictScore(pA);
-                    const aWins = pA >= 0.5;
+                    const obt = unifiedEngine?.ordinalBT;
+                    let aKills: number, bKills: number;
+                    if (obt && obt.beta[predA] !== undefined && obt.beta[predB] !== undefined) {
+                      const margin = ordinalBTPredictedMargin(obt.beta[predA], obt.beta[predB], obt.sigma, obt.cutpoints);
+                      if (margin > 0) { aKills = 7; bKills = Math.max(0, Math.min(6, Math.round(7 - margin))); }
+                      else if (margin < 0) { bKills = 7; aKills = Math.max(0, Math.min(6, Math.round(7 + margin))); }
+                      else { const fb = predictScore(pA); aKills = fb.aKills; bKills = fb.bKills; }
+                    } else {
+                      const fb = predictScore(pA); aKills = fb.aKills; bKills = fb.bKills;
+                    }
+                    const aWins = aKills > bKills;
                     return (
                       <div style={{ textAlign: "center", marginBottom: 18, paddingBottom: 18, borderBottom: "1px solid var(--border)" }}>
                         <div className="section-label" style={{ marginBottom: 8 }}>PREDICTED SCORE</div>
@@ -2513,6 +2531,83 @@ export default function Home() {
               <div className="font-mono" style={{ fontSize: "0.90rem", color: "var(--text-dim)" }}>Need ≥4 games for an honest accuracy test.</div>
             )}
           </div>
+
+          {/* Unified Prediction Engine status */}
+          {unifiedEngine && (
+            <div className="panel" style={{ padding: "14px 18px", marginBottom: 14 }}>
+              <div className="section-label" style={{ marginBottom: 4, color: "var(--accent)" }}>PREDICTION ENGINE</div>
+              <div style={{ fontSize: "0.82rem", color: "var(--text-dim)", marginBottom: 10 }}>
+                A logistic ensemble (ELO · Katz · margin-aware BT) whose signal weights are fit by leave-one-out Brier score minimisation on historical games.
+              </div>
+              {unifiedEngine.status.ensembleMode !== "TOO_FEW_GAMES" ? (
+                <>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(170px, 1fr))", gap: 8, marginBottom: 14 }}>
+                    <MiniStat
+                      label="LOO BRIER"
+                      value={unifiedEngine.status.looBrierFitted?.toFixed(3) ?? "—"}
+                      sub="lower = better · 0.250 = guessing"
+                      color={unifiedEngine.status.looBrierFitted !== null && unifiedEngine.status.looBrierFitted < 0.22 ? "var(--win)" : "var(--text-bright)"}
+                      tip="Brier score of the ensemble on held-out games. Below 0.25 means it beats guessing."
+                    />
+                    <MiniStat
+                      label="DEFAULT BRIER"
+                      value={unifiedEngine.status.looBrierDefault?.toFixed(3) ?? "—"}
+                      sub="equal-weight baseline"
+                      tip="LOO Brier score using equal-weight default signal blending for comparison."
+                    />
+                    <MiniStat
+                      label="LOO GAMES"
+                      value={String(unifiedEngine.status.looN)}
+                      sub={`${unifiedEngine.status.ensembleMode === "FITTED" ? "✓ weights learned" : "weights defaulted"}`}
+                      color={unifiedEngine.status.ensembleMode === "FITTED" ? "var(--win)" : "var(--neutral)"}
+                      tip="Number of leave-one-out training examples used to fit ensemble weights."
+                    />
+                    {unifiedEngine.status.ordinalBTFitted && unifiedEngine.status.sigma !== null && (
+                      <MiniStat
+                        label="MARGIN SCALE σ"
+                        value={unifiedEngine.status.sigma.toFixed(2)}
+                        sub="ordinal BT scale (fit)"
+                        tip="Scale parameter of the margin-aware Bradley-Terry model. Smaller σ = model is more confident about score spreads."
+                      />
+                    )}
+                  </div>
+                  {unifiedEngine.status.ensembleMode !== "FITTED" && (
+                    <div style={{ fontSize: "0.80rem", color: "var(--neutral)", fontFamily: "Share Tech Mono", marginBottom: 12, padding: "6px 10px", border: "1px solid var(--neutral)", borderRadius: 4 }}>
+                      ⚠ ENSEMBLE WEIGHTS DEFAULTED — not enough improvement over equal-weight blend to justify fitted weights. Signal weights are fixed until more games are played.
+                    </div>
+                  )}
+                  <div className="section-label" style={{ marginBottom: 6 }}>ENSEMBLE WEIGHTS</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                    {[
+                      { label: "ELO log-odds", w: unifiedEngine.status.ensembleWeights[0] },
+                      { label: "Katz centrality Δ", w: unifiedEngine.status.ensembleWeights[1] },
+                      { label: "Ordinal BT log-odds", w: unifiedEngine.status.ensembleWeights[2] },
+                      { label: "BT reliability gap", w: unifiedEngine.status.ensembleWeights[3] },
+                      { label: "Intercept", w: unifiedEngine.status.ensembleWeights[4] },
+                    ].map(({ label, w }) => {
+                      const barW = Math.min(100, Math.abs(w) / 1.5 * 100);
+                      return (
+                        <div key={label} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <span className="font-mono" style={{ fontSize: "0.78rem", color: "var(--text-dim)", minWidth: 160 }}>{label}</span>
+                          <div style={{ flex: 1, height: 6, background: "var(--surface2)", borderRadius: 2, overflow: "hidden" }}>
+                            <div style={{ height: "100%", width: `${barW}%`, background: w >= 0 ? "var(--accent)" : "var(--lose)", borderRadius: 2 }} />
+                          </div>
+                          <span className="font-mono" style={{ fontSize: "0.82rem", color: "var(--text-bright)", minWidth: 42, textAlign: "right" }}>{w >= 0 ? "+" : ""}{w.toFixed(3)}</span>
+                          <span className="font-mono" style={{ fontSize: "0.72rem", color: "var(--text-dim)" }}>
+                            {unifiedEngine.status.ensembleMode === "FITTED" ? "(learned)" : "(default)"}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </>
+              ) : (
+                <div className="font-mono" style={{ fontSize: "0.90rem", color: "var(--text-dim)" }}>
+                  Need ≥{4} games to fit ensemble weights. Using equal-weight ELO + BT blend.
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Bradley-Terry vs ELO vs Katz */}
           {btResult && ranking.length >= 2 && (() => {
