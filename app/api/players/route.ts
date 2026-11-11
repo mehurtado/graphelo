@@ -1,12 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
+import { requireWriteAccess } from "@/lib/write-auth";
 export const dynamic = "force-dynamic";
 import { loadState, savePlayer } from "@/lib/storage";
 import { v4 as uuidv4 } from "uuid";
 
 export async function POST(req: NextRequest) {
+  const denied = requireWriteAccess(req);
+  if (denied) return denied;
   try {
-    const { display_name } = await req.json();
-    if (!display_name?.trim()) return NextResponse.json({ error: "display_name required" }, { status: 400 });
+    const body: unknown = await req.json().catch(() => null);
+    if (!body || typeof body !== "object" || !("display_name" in body)) {
+      return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
+    }
+    const { display_name } = body;
+    if (typeof display_name !== "string" || !display_name.trim()) return NextResponse.json({ error: "display_name required" }, { status: 400 });
 
     const state = await loadState();
     const exists = Object.values(state.players).find(
