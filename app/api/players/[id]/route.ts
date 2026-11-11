@@ -1,16 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
+import { requireWriteAccess } from "@/lib/write-auth";
 export const dynamic = "force-dynamic";
 import { loadState, deletePlayer, deleteGame } from "@/lib/storage";
 
 export async function DELETE(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  const denied = requireWriteAccess(req);
+  if (denied) return denied;
   try {
     const { id } = await params;
     const state = await loadState();
 
-    if (!state.players[id]) return NextResponse.json({ error: "Unknown player" }, { status: 404 });
+    if (!Object.hasOwn(state.players, id)) return NextResponse.json({ error: "Unknown player" }, { status: 404 });
 
     const playerGames = state.games.filter(g => g.winner_id === id || g.loser_id === id);
     await Promise.all([
