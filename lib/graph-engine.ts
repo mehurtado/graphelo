@@ -531,7 +531,7 @@ export function simulationScore(
   return alpha * champNorm + (1 - alpha) * avgPairwiseWinProb;
 }
 
-export function simulateRoundRobin(state: GraphState, engine?: UnifiedEngine): SimulationResult {
+export function simulateRoundRobin(state: GraphState, engine?: UnifiedEngine, random = Math.random): SimulationResult {
   const players = Object.values(state.players);
   if (players.length === 0) return { ranking: [], h2h_sim: {}, champ_counts: {} };
   const n = players.length;
@@ -575,7 +575,7 @@ export function simulateRoundRobin(state: GraphState, engine?: UnifiedEngine): S
     for (let i = 0; i < players.length; i++) {
       for (let j = i + 1; j < players.length; j++) {
         const a = players[i], b = players[j];
-        if (Math.random() < pMatrix[a.id][b.id]) {
+        if (random() < pMatrix[a.id][b.id]) {
           wins[a.id]++;
           h2h[a.id][b.id]++;
         } else {
@@ -1553,7 +1553,7 @@ export interface PermutationTestResult {
   label: string;
 }
 
-export function computePermutationTest(state: GraphState, nPermutations = 200): PermutationTestResult | null {
+export function computePermutationTest(state: GraphState, nPermutations = 200, random = Math.random): PermutationTestResult | null {
   if (state.games.length < 6 || Object.keys(state.players).length < 3) return null;
   const bt = computeBradleyTerry(state);
   if (!bt) return null;
@@ -1569,7 +1569,7 @@ export function computePermutationTest(state: GraphState, nPermutations = 200): 
   let moreExtreme = 0;
   for (let p = 0; p < nPermutations; p++) {
     const shuffled: Game[] = state.games.map(g =>
-      Math.random() < 0.5
+      random() < 0.5
         ? { ...g, winner_id: g.loser_id, loser_id: g.winner_id, winner_stats: g.loser_stats, loser_stats: g.winner_stats }
         : g
     );
